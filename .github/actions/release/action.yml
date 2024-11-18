@@ -126,12 +126,15 @@ runs:
   
         # Function to get the latest tag in the current HEAD history  
         get_latest_branch_tag() {
-          # Fetch tags to ensure they are available locally
-          git fetch --tags
-          
-          # List all tags reachable from HEAD, sorted by commit date
-          git tag --merged HEAD --sort=-creatordate | grep "^v[0-9]*" | head -n 1 || echo "v0.0.0"
-        } 
+          # Fetch all tags
+          git fetch --tags > /dev/null 2>&1
+
+          # Traverse the history of HEAD to find the latest tag
+          latest_tag=$(git for-each-ref --sort=-creatordate --format '%(refname:short)' refs/tags | grep "^v[0-9]" | head -n 1)
+
+          # Fallback to v0.0.0 if no tag is found
+          echo "${latest_tag:-v0.0.0}"
+        }
 
         # Get the latest tag in the current branch  
         base_tag=$(get_latest_branch_tag)
