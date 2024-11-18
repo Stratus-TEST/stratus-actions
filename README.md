@@ -7,6 +7,7 @@ Welcome to `stratus-gh-actions`! This repository hosts a collection of reusable 
 - [About](#about)
 - [Repository Structure](#repository-structure)
 - [Available Actions](#available-actions)
+  - [Hello World] (#hello-world)
   - [Version Bump and Release](#version-bump-and-release)
 - [Usage](#usage)
 - [Examples](#examples)
@@ -44,7 +45,39 @@ stratus-gh-actions/
 
 Each action has its own documentation explaining its specific usage and configuration options.
 
+## Usage
+
+To use an action from this repository, reference it in your workflow file with the following syntax:
+
+```yaml
+uses: HafslundEcoVannkraft/stratus-gh-actions/.github/actions/[action-name]@main
+```
+
+Replace:
+- `[action-name]` with the specific action folder name (e.g., `release`)
+- `@main` with the desired version tag or branch
+
 ## Available Actions
+
+### Hello World Action
+
+A simple example action that demonstrates the basic structure and usage of composite actions. For more information, see the [hello-world action documentation](.github/actions/hello-world/README.md).
+
+#### Example Using Hello World Action
+
+```yaml
+name: Hello World Example
+
+on:
+  workflow_dispatch:
+
+jobs:
+  hello:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Say Hello
+        uses: HafslundEcoVannkraft/stratus-gh-actions/.github/actions/hello-world@main
+```
 
 ### Version Bump and Release
 
@@ -65,108 +98,45 @@ A sophisticated action that automates version management and release creation wi
 
 For detailed information about this action, see the [release action documentation](.github/actions/release/README.md).
 
-### Hello World Action
-
-A simple example action that demonstrates the basic structure and usage of composite actions. For more information, see the [hello-world action documentation](.github/actions/hello-world/README.md).
-
-## Usage
-
-To use an action from this repository, reference it in your workflow file with the following syntax:
-
-```yaml
-uses: HafslundEcoVannkraft/stratus-gh-actions/.github/actions/[action-name]@main
-```
-
-Replace:
-- `[action-name]` with the specific action folder name (e.g., `release`)
-- `@main` with the desired version tag or branch
-
 ### Version Bumping Rules
 
-The release action uses these commit message prefixes to determine version changes:
+The release action search the commit message for keywords to determine version changes:
 - **Major** (`vX.y.z`): `breaking change:` or `major:`
 - **Minor** (`vx.Y.z`): `feat:` or `minor:`
 - **Patch** (`vx.y.Z`): `fix:` or `patch:`
 - **Pre-release**: `alpha:`, `beta:`, `rc:`, or `preview:`
 
-## Examples
-
-### Basic Release Workflow with Azure RBAC
+### Basic Release Workflow with AI-Powered Release Notes
 
 ```yaml
-name: Release
+name: Draft Release
 
 on:
-  push:
-    branches:
-      - main
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [ main ]
+
+permissions:
+  contents: write
+  id-token: write
+  pull-requests: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           
-      - name: Create Release
+      - name: Generate Draft Release
         uses: HafslundEcoVannkraft/stratus-gh-actions/.github/actions/release@main
         with:
-          azure_openai_endpoint: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
-          azure_openai_deployment_name: ${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}
-          azure_client_id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
-          azure_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-```
-
-### Creating a Pre-Release
-
-```yaml
-name: Preview Release
-
-on:
-  push:
-    branches:
-      - develop
-
-jobs:
-  preview-release:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          
-      - name: Create Preview Release
-        uses: HafslundEcoVannkraft/stratus-gh-actions/.github/actions/release@main
-        with:
-          azure_openai_endpoint: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
-          azure_openai_deployment_name: ${{ secrets.AZURE_OPENAI_DEPLOYMENT_NAME }}
-          azure_client_id: ${{ secrets.AZURE_CLIENT_ID }}
-          azure_tenant_id: ${{ secrets.AZURE_TENANT_ID }}
-          azure_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          prerelease: true
-```
-
-### Using Hello World Action
-
-```yaml
-name: Hello World Example
-
-on:
-  workflow_dispatch:
-
-jobs:
-  hello:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Say Hello
-        uses: HafslundEcoVannkraft/stratus-gh-actions/.github/actions/hello-world@main
+          azure_openai_endpoint: <Azure OpenAI API Endpoint>
+          azure_openai_deployment_name: <Azure OpenAI Deployment Name>
+          azure_client_id: <Azure Client ID>
+          azure_tenant_id: <Azure Tenant ID>
+          azure_subscription_id: <Azure Subscription ID>
 ```
 
 ## Contributing
@@ -187,14 +157,14 @@ Contributions are welcome! If you'd like to add an action, improve existing ones
 This repository uses an automated release process:
 
 1. When a Pull Request is opened to `main`, the release action automatically:
-   - Analyzes commit messages to determine version bump type
+   - Analyzes the last HEAD commit messages to determine version bump type
    - Creates a new version tag
    - Generates AI-powered release notes
    - Creates a GitHub release draft
 
 2. The version bump is determined by:
-   - Commit message prefixes (major, feat, fix, etc.)
-   - If no matching prefix is found and no default is set, the action exits without creating a release
+   - Commit message contains (major:, feat:, fix:, etc.)
+   - If no matching keyword is found and no default is set, the action exits without creating a release
 
 3. Release notes are automatically generated using Azure OpenAI, including:
    - Summary of changes
@@ -219,10 +189,6 @@ The repository automatically handles versioning through the release action. You 
 2. For pre-releases, use appropriate prefixes in commit messages
 3. Let the automated pipeline handle version bumping and release creation
 4. Check the generated release notes and edit if necessary
-
----
-
-**Note:** Since releases are automated, manually creating tags or releases is not necessary. The system will handle versioning based on your commit messages when changes are merged to `main`.
 
 ## License
 
