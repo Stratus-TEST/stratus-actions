@@ -124,14 +124,18 @@ runs:
       run: |  
         set -e  
   
-        # Function to get the latest tag on the current branch  
+        # Function to get the latest tag in the current HEAD history  
         get_latest_branch_tag() {
-          git describe --tags --abbrev=0 --match "v[0-9]*" 2>/dev/null || echo "v0.0.0"  
-        }  
-  
+          # Fetch tags to ensure they are available locally
+          git fetch --tags
+          
+          # List all tags reachable from HEAD, sorted by commit date
+          git tag --merged HEAD --sort=-creatordate | grep "^v[0-9]*" | head -n 1 || echo "v0.0.0"
+        } 
+
         # Get the latest tag in the current branch  
         base_tag=$(get_latest_branch_tag)
-        echo "Current base tag: $base_tag"  
+        echo "Current base tag in HEAD history: $base_tag"  
   
         # Parse version components  
         if [[ $base_tag == "v0.0.0" ]]; then
