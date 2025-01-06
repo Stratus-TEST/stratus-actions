@@ -40,9 +40,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+
       - name: Generate Draft Release
-        uses: HafslundEcoVannkraft/stratus-gh-actions/.github/actions/release@v1.2.1
+        uses: HafslundEcoVannkraft/stratus-gh-actions/.github/actions/release@v1.2.0
         with:
           azure_openai_endpoint: ${{ secrets.STRATUS_AZURE_OPENAI_API_ENDPOINT }}
           azure_openai_deployment_name: gpt-4o
@@ -60,7 +60,7 @@ jobs:
           script: |
             const fs = require('fs');
             const releaseNotes = fs.readFileSync('release_notes.md', 'utf8');
-            
+
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
