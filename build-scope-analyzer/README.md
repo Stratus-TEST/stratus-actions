@@ -1,237 +1,214 @@
 # Build Scope Analyzer
 
-A GitHub Action that analyzes git changes to identify what needs to be built, generating a strategy matrix for efficient CI/CD pipelines.
+## Overview
 
-## Features
+This GitHub Action analyzes changes in a repository to determine what applications need to be built, deployed, or cleaned up in a multi-app repository. It's particularly designed for containerized applications and helps optimize CI/CD workflows by building only what has changed.
 
-- 🔍 **Smart Change Detection**: Analyzes git diff to identify changed folders
-- 📦 **App Detection**: Finds apps by looking for `app.yaml`/`app.yml` and `Dockerfile`
-- 🏷️ **Smart App Naming**: Extracts app names from configuration or uses folder names
-- 🎯 **Path Filtering**: Include or exclude paths using glob patterns
-- 📊 **Matrix Output**: Generates GitHub Actions strategy matrix for parallel builds
-- 🗑️ **Deletion Tracking**: Identifies deleted folders for cleanup operations
+## Key Features
+
+- **Smart Change Detection**: Analyzes Git diffs to identify changed files and folders
+- **Deletion Tracking**: Detects deleted apps or containers for proper cleanup
+- **Multi-Container Support**: Handles repositories with multiple apps and containers
+- **Custom Docker Build Context**: Supports custom Docker build contexts via a `# @context: ...` comment in Dockerfiles
+- **Specialized Outputs**: Separate matrices for container builds vs app deployments
+- **Workflow Optimization**: Generates strategy matrices for parallel builds
+- **Image Name Reference**: Each container output includes an `image_name` field, derived from the app config or folder name and Dockerfile suffix.
+- **Explicit Container Output**: Each container output includes `context` (build context), `container_name`, and detailed Dockerfile info.
 
 ## Usage
 
 ### Basic Usage
 
 ```yaml
-name: Build Changed Apps
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-
-jobs:
-  analyze:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.scope.outputs.matrix }}
-      has-changes: ${{ steps.scope.outputs.has-changes }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Analyze changes
-        id: scope
-        uses: HafslundEcoVannkraft/stratus-gh-actions/build-scope-analyzer@main
-
-  build:
-    needs: analyze
-    if: needs.analyze.outputs.has-changes == 'true'
-    runs-on: ubuntu-latest
-    strategy:
-      matrix: ${{ fromJson(needs.analyze.outputs.matrix) }}
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}/${{ matrix.app_name }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=sha
-      
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: ${{ matrix.path }}
-          file: ${{ matrix.dockerfile }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-```
-
-### With Path Filtering
-
-```yaml
 - name: Analyze changes
-  id: scope
-  uses: HafslundEcoVannkraft/stratus-gh-actions/build-scope-analyzer@main
+  id: analyze
+  uses: HafslundEcoVannkraft/stratus-gh-actions/build-scope-analyzer@release/v3.0.0
   with:
-    include-pattern: 'apps/*'  # Only analyze apps folder
-    # OR
-    exclude-pattern: 'tests/*' # Exclude test folders
+    root-path: ${{ github.workspace }}
+    include-pattern: "src/*"
 ```
 
-## Inputs
+> **Note:** If no `app.yaml` or `app.yml` is found in any folder, the `apps` list in the output will simply be empty.
 
-| Input | Description | Required | Default |
-|-------|-------------|----------|---------|
-| `root-path` | Root path to search for changes | No | `${{ github.workspace }}` |
-| `include-pattern` | Glob pattern for paths to include | No | `''` |
-| `exclude-pattern` | Glob pattern for paths to exclude | No | `''` |
-| `ref` | Git ref to compare against | No | Auto-detected |
+## Example Matrix Structure
 
-## Outputs
+The output structure provides specialized outputs for different use cases:
 
-| Output | Description | Example |
-|--------|-------------|---------|
-| `matrix` | JSON matrix for GitHub Actions | `{"include":[{"path":"app1","app_name":"frontend","dockerfile":"app1/Dockerfile"}]}` |
-| `has-changes` | Boolean indicating if changes detected | `true` |
-| `deleted-folders` | JSON array of deleted folders | `["old-app"]` |
-| `ref` | Git ref used for comparison | `origin/main` |
+```json
+{
+  "apps": {
+    "updated": [ ... ],        // Changed apps with app.yaml/app.yml
+    "all": [ ... ],            // All apps with app.yaml/app.yml
+    "deleted": [ ... ],        // Deleted apps (previously had app.yaml/app.yml)
+    "has_updates": true|false,    // Whether there are any changed apps
+    "has_deletions": true|false   // Whether there are any deleted apps
+  },
+  "containers": {
+    "updated": [ ... ],        // Changed containers (with Dockerfiles)
+    "all": [ ... ],            // All containers (with Dockerfiles)
+    "deleted": [ ... ],        // Deleted containers (previously had Dockerfiles)
+    "has_updates": true|false,    // Whether there are any changed containers
+    "has_deletions": true|false   // Whether there are any deleted containers
+  },
+  "ref": "origin/main"  // Git ref used for comparison
+}
+```
 
-## How It Works
+### Container Item Structure
 
-1. **Git Diff Detection**: Compares current commit against:
-   - Base branch for pull requests
-   - Previous commit for push events
+```json
+{
+  "path": "apps/web-api",
+  "app_name": "web-api",
+  "dockerfile": {
+    "path": "apps/web-api/Dockerfile",
+    "name": "Dockerfile",
+    "suffix": ""
+  },
+  "image_name": "web-api",
+  "container_name": "web-api",
+  "context": "apps/web-api" // Build context (may differ if custom context is set)
+}
+```
 
-2. **App Discovery**: For each changed folder, looks for:
-   - `app.yaml` or `app.yml` configuration files
-   - `Dockerfile` for container builds
+- `context`: The build context directory for the Docker build. If a Dockerfile contains a `# @context: ...` comment, this value will reflect the custom context.
+- `container_name`: The name of the container (from app.yaml name property or folder basename if no app.yaml, suffixed with Dockerfile suffix).
 
-3. **App Name Resolution**:
-   - First tries to extract from `app.yaml` (`name` field)
-   - Falls back to folder name if not found
+### Deleted Container Structure
 
-4. **Matrix Generation**: Creates a matrix entry for each app with:
-   - `path`: Folder path
-   - `app_name`: Resolved app name
-   - `dockerfile`: Path to Dockerfile
-   - `app_config`: Path to app configuration (if exists)
+```json
+{
+  "app_name": "old-service",
+  "container_name": "old-service-monitor",
+  "dockerfile": "apps/old-service/Dockerfile.monitor",
+  "image_name": "old-service-monitor",
+  "context": "apps/old-service", // (if available)
+  "commit_sha": "abc123def456789test0commit0sha0for0testing" // The commit SHA for the version with this container
+}
+```
 
-## Best Practices
+### Deleted App Structure
 
-### Separation of Concerns
+```json
+{
+  "path": "apps/old-service",
+  "app_name": "old-service",
+  "app_config": "apps/old-service/app.yaml",
+  "commit_sha": "abc123def456789test0commit0sha0for0testing" // The commit SHA for the version with this app
+}
+```
 
-This action focuses solely on **what** needs to be built, not **how** it should be tagged or deployed. Use specialized actions for:
-
-- **Docker Tagging**: Use `docker/metadata-action` in your build job
-- **Deployment**: Use deployment-specific actions with the matrix output
-- **Registry Management**: Handle authentication and pushing in the build job
-
-### Example: Complete Workflow
+## Production Pipeline Example
 
 ```yaml
-name: CI/CD Pipeline
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-
+# This example is based on a real-world production workflow
 jobs:
-  # 1. Identify what changed
   analyze:
+    name: Analyze Repo Changes
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.scope.outputs.matrix }}
-      has-changes: ${{ steps.scope.outputs.has-changes }}
+      apps_updated: ${{ steps.set-matrix.outputs.apps_updated }}
+      apps_deleted: ${{ steps.set-matrix.outputs.apps_deleted }}
+      apps_has_deletions: ${{ steps.set-matrix.outputs.apps_has_deletions }}
+      containers_updated: ${{ steps.set-matrix.outputs.containers_updated }}
+      containers_deleted: ${{ steps.set-matrix.outputs.containers_deleted }}
+      containers_has_deletions: ${{ steps.set-matrix.outputs.containers_has_deletions }}
+      comparison_ref: ${{ steps.set-matrix.outputs.ref }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
-      - id: scope
-        uses: HafslundEcoVannkraft/stratus-gh-actions/build-scope-analyzer@main
 
-  # 2. Build changed apps
-  build:
-    needs: analyze
-    if: needs.analyze.outputs.has-changes == 'true'
-    runs-on: ubuntu-latest
+      - name: Run build-scope-analyzer
+        id: analyze
+        uses: HafslundEcoVannkraft/stratus-gh-actions/build-scope-analyzer@v3
+        with:
+          root-path: ${{ github.workspace }}
+          include-pattern: "src/*"
+
+      - name: Set matrix outputs
+        id: set-matrix
+        run: |
+          MATRIX_JSON='${{ steps.analyze.outputs.matrix }}'
+          echo "apps_updated=$(echo $MATRIX_JSON | jq -c '.apps.updated')" >> $GITHUB_OUTPUT
+          echo "apps_deleted=$(echo $MATRIX_JSON | jq -c '.apps.deleted')" >> $GITHUB_OUTPUT
+          echo "apps_has_deletions=$(echo $MATRIX_JSON | jq -r '.apps.has_deletions')" >> $GITHUB_OUTPUT
+          echo "containers_updated=$(echo $MATRIX_JSON | jq -c '.containers.updated')" >> $GITHUB_OUTPUT
+          echo "containers_deleted=$(echo $MATRIX_JSON | jq -c '.containers.deleted')" >> $GITHUB_OUTPUT
+          echo "containers_has_deletions=$(echo $MATRIX_JSON | jq -r '.containers.has_deletions')" >> $GITHUB_OUTPUT
+          echo "ref=$(echo $MATRIX_JSON | jq -c '.ref')" >> $GITHUB_OUTPUT
+
+  app-destroy:
+    name: Destroy App (${{ matrix.app.app_name }})
+    needs: [analyze]
+    if: needs.analyze.outputs.apps_has_deletions == 'true'
     strategy:
-      matrix: ${{ fromJson(needs.analyze.outputs.matrix) }}
+      matrix:
+        app: ${{ fromJson(needs.analyze.outputs.apps_deleted) }}
     steps:
-      - uses: actions/checkout@v4
-      
-      # Generate tags based on your strategy
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}/${{ matrix.app_name }}
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=sha,prefix={{branch}}-
-            type=raw,value=latest,enable={{is_default_branch}}
-      
-      # Build with your preferred method
-      - uses: docker/build-push-action@v5
-        with:
-          context: ${{ matrix.path }}
-          file: ${{ matrix.dockerfile }}
-          push: ${{ github.event_name != 'pull_request' }}
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+      - name: Destroy App
+        run: |
+          echo "Destroying app: ${{ matrix.app.app_name }}"
+          echo "Path: ${{ matrix.app.path }}"
+          echo "App config: ${{ matrix.app.app_config }}"
+          echo "Commit SHA: ${{ matrix.app.commit_sha }}"
+          # Destroy app logic here
 
-  # 3. Deploy to your platform
-  deploy:
-    needs: [analyze, build]
-    if: github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
+  docker-cleanup:
+    name: Docker Cleanup (${{ matrix.container.container_name }})
+    needs: [analyze]
+    if: needs.analyze.outputs.containers_has_deletions == 'true'
+    strategy:
+      matrix:
+        container: ${{ fromJson(needs.analyze.outputs.containers_deleted) }}
+      max-parallel: 50
     steps:
-      # Use the matrix to deploy each app
-      - run: echo "Deploy apps from matrix"
+      - name: Delete from Container Registry
+        run: |
+          echo "Deleting container: ${{ matrix.container.container_name }}"
+          echo "From app: ${{ matrix.container.app_name }}"
+          echo "Dockerfile: ${{ matrix.container.dockerfile }}"
+          echo "Commit SHA: ${{ matrix.container.commit_sha }}"
+          # Container registry cleanup logic here
+
+  container-build:
+    name: Docker Build (${{ matrix.container.container_name }})
+    needs: [analyze, docker-cleanup]
+    if: always() && needs.analyze.outputs.containers_updated != '[]' && (needs.docker-cleanup.result == 'success' || needs.docker-cleanup.result == 'skipped')
+    strategy:
+      matrix:
+        container: ${{ fromJson(needs.analyze.outputs.containers_updated) }}
+      max-parallel: 50
+    steps:
+      - name: Build Container
+        run: |
+          echo "Building container: ${{ matrix.container.container_name }}"
+          echo "For app: ${{ matrix.container.app_name }}"
+          echo "Context: ${{ matrix.container.context }}"
+          echo "Dockerfile: ${{ matrix.container.dockerfile.path }}"
+          # docker build -f ${{ matrix.container.dockerfile.path }} -t ${{ matrix.container.container_name }} ${{ matrix.container.context }}
+
+  app-deploy:
+    name: Deploy App (${{ matrix.app.app_name }})
+    needs: [analyze, app-destroy, container-build]
+    if: always() && needs.analyze.outputs.apps_updated != '[]' && (needs.container-build.result == 'success' || needs.container-build.result == 'skipped') && (needs.app-destroy.result == 'success' || needs.app-destroy.result == 'skipped')
+    strategy:
+      matrix:
+        app: ${{ fromJson(needs.analyze.outputs.apps_updated) }}
+      max-parallel: 50
+    steps:
+      - name: Deploy App
+        run: |
+          echo "Deploying app: ${{ matrix.app.app_name }}"
+          echo "From path: ${{ matrix.app.path }}"
+          echo "Using config: ${{ matrix.app.app_config }}"
+          # Deployment logic here
 ```
 
-## Testing
+## Notes
 
-Run the test script to see the analyzer in action:
-
-```bash
-# Set up test environment
-./setup_test_env.sh
-
-# Activate virtual environment
-source venv/bin/activate
-
-# Run tests
-python test_build_scope_analyzer.py
-```
-
-## Requirements
-
-- Python 3.x
-- PyYAML
-- Git repository with history
-
-## Troubleshooting
-
-### No changes detected
-- Ensure `fetch-depth: 0` in checkout action
-- Check if files match your include/exclude patterns
-- Verify apps have `Dockerfile` or `app.yaml`
-
-### Wrong comparison ref
-- For PRs: Checks against base branch
-- For pushes: Checks against previous commit
-- Override with `ref` input if needed
-
-### Pattern matching
-- Use `*` for single directory level
-- Use `**` for multiple directory levels
-- Cannot use both include and exclude patterns
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
+- The `image_name`, `container_name`, and `context` fields are always present for containers. `context` is derived from a `# @context: ...` comment in the Dockerfile if present, otherwise defaults to the app folder.
+- Only folders with real file changes (not just renames) are included in `updated`.
+- Deleted containers and apps are only included if truly deleted, not just renamed.
+- For multi-container apps, each container is listed separately with its own `container_name`, `dockerfile`, and `context`.
