@@ -179,21 +179,24 @@ jobs:
       - name: Build Docker image for Build Scope Analyzer
         run: |
           SHORT_SHA=$(git rev-parse --short=8 HEAD)
-          docker build -t ghcr.io/${{ github.repository }}/build-scope-analyzer:sha-$SHORT_SHA ./build-scope-analyzer
+          ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          docker build -t ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA ./build-scope-analyzer
 
       - name: Push Docker image to GHCR
         run: |
           SHORT_SHA=$(git rev-parse --short=8 HEAD)
-          docker push ghcr.io/${{ github.repository }}/build-scope-analyzer:sha-$SHORT_SHA
+          ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          docker push ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA
 
       - name: Analyze Build Scope (with changes) using container
         id: scope
         run: |
           SHORT_SHA=$(git rev-parse --short=8 HEAD)
+          ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           docker run --rm \
             -v "$(pwd):/github/workspace" \
             -e GITHUB_WORKSPACE=/github/workspace \
-            ghcr.io/${{ github.repository }}/build-scope-analyzer:sha-$SHORT_SHA \
+            ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA \
             --root-path /github/workspace --ref test-base --output-format json > matrix.json
           echo "matrix=$(cat matrix.json | jq -c .)" >> $GITHUB_OUTPUT
 
@@ -206,10 +209,11 @@ jobs:
         id: scope-include
         run: |
           SHORT_SHA=$(git rev-parse --short=8 HEAD)
+          ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           docker run --rm \
             -v "$(pwd):/github/workspace" \
             -e GITHUB_WORKSPACE=/github/workspace \
-            ghcr.io/${{ github.repository }}/build-scope-analyzer:sha-$SHORT_SHA \
+            ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA \
             --root-path /github/workspace --ref test-base --include-pattern 'src/helloworld/*' --output-format json > matrix-include.json
           echo "matrix=$(cat matrix-include.json | jq -c .)" >> $GITHUB_OUTPUT
 
