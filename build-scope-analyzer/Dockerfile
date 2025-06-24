@@ -28,6 +28,8 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup && \
     chown -R appuser:appgroup /app
 USER appuser
 
+RUN git config --global --add safe.directory /github/workspace
+
 ENTRYPOINT ["python", "/app/main.py"]
 
 CMD ["--help"]
