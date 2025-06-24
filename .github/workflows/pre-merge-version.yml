@@ -35,7 +35,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add build-scope-analyzer/action.yml build-scope-analyzer/pyproject.toml
           git commit -m "chore: bump version to ${VERSION} [pre-merge]" || echo "No changes to commit."
-          git push || echo "No changes to push."
+          git push origin HEAD:${{ github.head_ref }} || echo "No changes to push."
       - name: Comment Next Version on PR
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
