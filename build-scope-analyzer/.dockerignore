@@ -1,0 +1,36 @@
+# Git
+.git
+.gitignore
+
+# Testing
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.pytest_cache
+test*
+tests/
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
+run-docker.sh
+run-compose.sh
+test-usage.sh
+
+# Documentation
+*.md
+LICENSE
+CONTRIBUTING*
+!README.md
+
+# GitHub
+.github/
+
+# Temporary files
+*.log
+*.swp
+*.swo
+*~
+.DS_Store
