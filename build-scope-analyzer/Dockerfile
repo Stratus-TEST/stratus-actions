@@ -19,7 +19,7 @@ LABEL org.opencontainers.image.licenses=MIT
 
 COPY --from=build /venv /venv
 ENV PATH="/venv/bin:$PATH"
-ENV PYTHONPATH="/venv/lib/python3.14/site-packages:$PYTHONPATH"
+ENV PYTHONPATH="/venv/lib/python3.14/site-packages"
 
 WORKDIR /github/workspace
 COPY main.py /app/

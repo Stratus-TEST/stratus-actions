@@ -13,6 +13,7 @@ import subprocess
 import argparse
 import fnmatch
 import yaml
+import logging
 from pathlib import Path
 from typing import List, Dict, Set, Optional, Tuple, Any
 
@@ -53,8 +54,8 @@ class BuildScopeAnalyzer:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return result.stdout.strip()
         except subprocess.CalledProcessError as e:
-            print(f"Git command failed: {' '.join(cmd)}", file=sys.stderr)
-            print(f"Error: {e.stderr}", file=sys.stderr)
+            logging.error(f"Git command failed: {' '.join(cmd)}")
+            logging.error(f"Error: {e.stderr}")
             sys.exit(1)
 
     def get_event_type(self) -> str:
@@ -600,14 +601,21 @@ def check_git_repository():
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        print("Git repository detected.")
+        logging.info("Git repository detected.")
     except Exception:
-        print("Warning: Not inside a git repository.")
-        print("This container is designed to run in the context of a git repository.")
-        print("Results may not be as expected.")
+        logging.warning("Not inside a git repository.")
+        logging.warning("This container is designed to run in the context of a git repository.")
+        logging.warning("Results may not be as expected.")
 
 def main():
     """Main entry point"""
+    # Configure logging to stderr, INFO level by default
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s: %(message)s",
+        stream=sys.stderr
+    )
+
     parser = argparse.ArgumentParser(description='Analyze git changes for build scope')
     parser.add_argument('--root-path', default=os.environ.get('GITHUB_WORKSPACE', '.'),
                         help='Root path to search for changes')
