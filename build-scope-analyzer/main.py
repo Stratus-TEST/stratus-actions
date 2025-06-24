@@ -20,16 +20,35 @@ from typing import List, Dict, Set, Optional, Tuple, Any
 class BuildScopeAnalyzer:
     """Analyzes git changes and generates strategy matrix output"""
 
-    def __init__(self, root_path: str, include_pattern: str = '', exclude_pattern: str = ''):
+    def __init__(self, root_path: str, include_pattern: str = '', exclude_pattern: str = '', mock_git: bool = False):
         self.root_path = Path(root_path).resolve()
         self.include_pattern = include_pattern
         self.exclude_pattern = exclude_pattern
         self.changed_files: Set[Path] = set()
         self.deleted_files: Set[Path] = set()
         self.renamed_files: Dict[Path, Path] = {}  # old_path -> new_path
+        self.mock_git = mock_git  # Flag to enable mock mode for local testing
 
     def run_git_command(self, cmd: List[str]) -> str:
         """Execute a git command and return output"""
+        if self.mock_git:
+            # When in mock mode, return predefined mock data for common git commands
+            cmd_str = " ".join(cmd)
+            if "rev-parse" in cmd_str:
+                return "mock-sha-12345"
+            if "diff --name-status" in cmd_str:
+                # Return some mock changed files for testing
+                mock_files = [
+                    f"M\t{self.root_path / 'app1/app.yaml'}",
+                    f"A\t{self.root_path / 'app2/app.yaml'}",
+                    f"D\t{self.root_path / 'app3/app.yaml'}",
+                    f"M\t{self.root_path / 'app1/Dockerfile'}",
+                    f"A\t{self.root_path / 'app2/Dockerfile'}"
+                ]
+                return "\n".join(mock_files)
+            # Default mock response
+            return ""
+
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             return result.stdout.strip()
@@ -572,6 +591,20 @@ class BuildScopeAnalyzer:
         # Ensure container name is lowercase for Azure Container Registry compatibility
         return container_name.lower()
 
+def check_git_repository():
+    """Check if running inside a git repository (any subdirectory)."""
+    try:
+        subprocess.run(
+            ["git", "rev-parse", "--is-inside-work-tree"],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        print("Git repository detected.")
+    except Exception:
+        print("Warning: Not inside a git repository.")
+        print("This container is designed to run in the context of a git repository.")
+        print("Results may not be as expected.")
 
 def main():
     """Main entry point"""
@@ -583,13 +616,22 @@ def main():
     parser.add_argument('--ref', help='Git ref to compare against')
     parser.add_argument('--output-format', choices=['json', 'github'], default='github',
                         help='Output format')
+    parser.add_argument('--mock-git', action='store_true',
+                        help='Use mock git data for local testing without a git repo')
 
     args = parser.parse_args()
+
+    # Change working directory to root_path for correct git context
+    os.chdir(args.root_path)
+
+    # Check if we're in a git repository (now in correct directory)
+    check_git_repository()
 
     analyzer = BuildScopeAnalyzer(
         root_path=args.root_path,
         include_pattern=args.include_pattern,
-        exclude_pattern=args.exclude_pattern
+        exclude_pattern=args.exclude_pattern,
+        mock_git=args.mock_git
     )
 
     output = analyzer.generate_matrix_output()

@@ -22,7 +22,25 @@ jobs:
           fetch-depth: 0
 
       - name: Create Release
-        uses: ./release  # Uses the release action from this repository
+        id: release
+        uses: ./release # Uses the release action from this repository
         with:
           draft: false
           prerelease: false
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Pull image by SHA tag
+        run: |
+          SHORT_SHA=$(git rev-parse --short=8 ${{ github.sha }})
+          docker pull ghcr.io/${{ github.repository }}/build-scope-analyzer:sha-$SHORT_SHA
+
+      - name: Tag and push release images
+        run: |
+          SEMVER=${{ steps.release.outputs.new_version }}
+          SHORT_SHA=$(git rev-parse --short=8 ${{ github.sha }})
+          docker tag ghcr.io/${{ github.repository }}/build-scope-analyzer:sha-$SHORT_SHA ghcr.io/${{ github.repository }}/build-scope-analyzer:latest
+          docker tag ghcr.io/${{ github.repository }}/build-scope-analyzer:sha-$SHORT_SHA ghcr.io/${{ github.repository }}/build-scope-analyzer:$SEMVER
+          docker push ghcr.io/${{ github.repository }}/build-scope-analyzer:latest
+          docker push ghcr.io/${{ github.repository }}/build-scope-analyzer:$SEMVER

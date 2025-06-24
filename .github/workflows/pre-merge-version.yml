@@ -1,0 +1,52 @@
+name: Pre-Merge Version Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  pre-merge-version:
+    name: Check Next Semantic Version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Preview Next Version
+        id: version
+        uses: ./release
+        with:
+          dry-run: true
+      - name: Update action.yml and pyproject.toml with next version
+        run: |
+          VERSION=${{ steps.version.outputs.new_version }}
+          # Remove leading 'v' if present for pyproject.toml
+          VERSION_NO_V=${VERSION#v}
+          sed -i "s|image: \"docker://ghcr.io/hafslundecoVannkraft/stratus-gh-actions/build-scope-analyzer:.*\"|image: \"docker://ghcr.io/hafslundecoVannkraft/stratus-gh-actions/build-scope-analyzer:${VERSION}\"|" build-scope-analyzer/action.yml
+          sed -i "s/^version = \".*\"/version = \"${VERSION_NO_V}\"/" build-scope-analyzer/pyproject.toml
+      - name: Commit and push version bump
+        run: |
+          VERSION=${{ steps.version.outputs.new_version }}
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add build-scope-analyzer/action.yml build-scope-analyzer/pyproject.toml
+          git commit -m "chore: bump version to ${VERSION} [pre-merge]" || echo "No changes to commit."
+          git push || echo "No changes to push."
+      - name: Comment Next Version on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = process.env.VERSION || '${{ steps.version.outputs.new_version }}';
+            const body = `🔢 If merged now, the next release version will be: **${version}**\n\nThe action.yml and pyproject.toml have been updated in this PR branch.`;
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
+    # Require this job to pass before merging (set branch protection in GitHub UI)
