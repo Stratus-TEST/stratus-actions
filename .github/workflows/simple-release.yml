@@ -22,7 +22,48 @@ jobs:
           fetch-depth: 0
 
       - name: Create Release
-        uses: ./release  # Uses the release action from this repository
+        id: release
+        uses: ./release # Uses the release action from this repository
         with:
           draft: false
           prerelease: false
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/build-scope-analyzer
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=ref,event=branch
+            type=sha,format=short
+            latest
+
+      - name: Pull image by SHA tag
+        run: |
+          SHORT_SHA=$(git rev-parse --short=8 ${{ github.sha }})
+          ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          docker pull ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA
+
+      - name: Tag and push release images
+        run: |
+          SEMVER=${{ steps.release.outputs.new_version }}
+          SHORT_SHA=$(git rev-parse --short=8 ${{ github.sha }})
+          ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          MAJOR=$(echo "$SEMVER" | cut -d. -f1 | sed 's/^v//')
+
+          docker tag ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA ghcr.io/$ORG_REPO/build-scope-analyzer:latest
+          docker tag ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA ghcr.io/$ORG_REPO/build-scope-analyzer:$SEMVER
+          docker tag ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA ghcr.io/$ORG_REPO/build-scope-analyzer:v$MAJOR
+
+          docker push ghcr.io/$ORG_REPO/build-scope-analyzer:latest
+          docker push ghcr.io/$ORG_REPO/build-scope-analyzer:$SEMVER
+          docker push ghcr.io/$ORG_REPO/build-scope-analyzer:v$MAJOR
