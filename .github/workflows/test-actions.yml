@@ -178,20 +178,20 @@ jobs:
 
       - name: Build Docker image for Build Scope Analyzer
         run: |
-          SHORT_SHA=$(git rev-parse --short=8 HEAD)
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
           ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           docker build -t ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA ./build-scope-analyzer
 
       - name: Push Docker image to GHCR
         run: |
-          SHORT_SHA=$(git rev-parse --short=8 HEAD)
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
           ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           docker push ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA
 
       - name: Analyze Build Scope (with changes) using container
         id: scope
         run: |
-          SHORT_SHA=$(git rev-parse --short=8 HEAD)
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
           ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           docker run --rm \
             -v "$(pwd):/github/workspace" \
@@ -208,7 +208,7 @@ jobs:
       - name: Test with Include Pattern using container
         id: scope-include
         run: |
-          SHORT_SHA=$(git rev-parse --short=8 HEAD)
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
           ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           docker run --rm \
             -v "$(pwd):/github/workspace" \
