@@ -97,3 +97,4 @@ The action outputs a matrix with the following structure:
 - The action is now fully containerized and uses `main.py` as the entrypoint.
 - All legacy scripts and files (e.g., `entrypoint.sh`, `docker-compose.yml`, `version.sh`, `test.sh`) are deprecated and removed.
 - See this README for all up-to-date usage and development instructions.
+
