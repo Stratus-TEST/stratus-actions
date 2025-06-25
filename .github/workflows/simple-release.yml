@@ -54,13 +54,13 @@ jobs:
 
       - name: Pull image by SHA tag
         run: |
-          SHORT_SHA=$(git rev-parse --short=8 ${{ github.sha }})
+          SHORT_SHA=$(git rev-parse --short=7 ${{ github.sha }})
           docker pull ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA
 
       - name: Tag and push release images
         run: |
           SEMVER=${{ steps.release.outputs.new_version }}
-          SHORT_SHA=$(git rev-parse --short=8 ${{ github.sha }})
+          SHORT_SHA=$(git rev-parse --short=7 ${{ github.sha }})
           MAJOR=$(echo "$SEMVER" | cut -d. -f1 | sed 's/^v//')
 
           docker tag ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA ghcr.io/$ORG_REPO/build-scope-analyzer:latest
