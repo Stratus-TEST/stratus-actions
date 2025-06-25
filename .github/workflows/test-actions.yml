@@ -4,14 +4,15 @@ on:
   pull_request:
     types: [opened, synchronize]
     paths:
-      - 'hello-world/**'
-      - 'release/**'
-      - 'build-scope-analyzer/**'
-      - '.github/workflows/test-actions.yml'
+      - "hello-world/**"
+      - "release/**"
+      - "build-scope-analyzer/**"
+      - ".github/workflows/test-actions.yml"
 
 permissions:
   contents: write
   pull-requests: write
+  packages: write
 
 jobs:
   test-hello-world:
@@ -19,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Test Hello World Action
         uses: ./hello-world
 
@@ -31,57 +32,57 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Configure Git
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
-      
+
       # Create a test scenario by modifying the release action to avoid actual push
       - name: Mock Release Action for Testing
         run: |
           # Create a backup of the original action
           cp release/action.yml release/action.yml.bak
-          
+
           # Modify the action to skip the actual git push
           sed -i "" "s/git push origin/echo \"MOCK: Would push tag\"/g" release/action.yml || sed -i "s/git push origin/echo \"MOCK: Would push tag\"/g" release/action.yml
-      
+
       - name: Create Test Release
         id: release
         uses: ./release
         with:
           draft: true
           prerelease: true
-      
+
       - name: Capture Release Details
         id: release-details
         if: steps.release.outputs.release_url != ''
         run: |
           # Get the release details using GitHub CLI
           release_body=$(gh release view ${{ steps.release.outputs.new_version }} --json body -q .body)
-          
+
           # Save to file for multi-line handling
           echo "$release_body" > release-notes.md
-          
+
           # Also get release metadata
           gh release view ${{ steps.release.outputs.new_version }} --json name,tagName,isDraft,isPrerelease,createdAt > release-metadata.json
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      
+
       - name: Post Release Preview to PR
         if: github.event_name == 'pull_request' && steps.release.outputs.release_url != ''
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('fs');
-            
+
             // Read the release notes and metadata
             const releaseNotes = fs.readFileSync('release-notes.md', 'utf8');
             const metadata = JSON.parse(fs.readFileSync('release-metadata.json', 'utf8'));
-            
+
             // Create a formatted comment
             const comment = `## 🎯 Release Action Test Results
-            
+
             ### Release Metadata
             - **Version**: ${metadata.tagName}
             - **Name**: ${metadata.name}
@@ -89,21 +90,21 @@ jobs:
             - **Created**: ${new Date(metadata.createdAt).toLocaleString()}
             - **Bump Type**: ${{ steps.release.outputs.bump_type }}
             - **Previous Version**: ${{ steps.release.outputs.previous_version }}
-            
+
             ### Release Notes Preview
-            
+
             <details>
             <summary>Click to expand release notes</summary>
-            
+
             ${releaseNotes}
-            
+
             </details>
-            
+
             ### Release URL
             🔗 [View test release](${{ steps.release.outputs.release_url }})
-            
+
             > **Note**: This test release will be automatically deleted after verification.`;
-            
+
             // Post the comment
             await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -111,7 +112,7 @@ jobs:
               issue_number: context.issue.number,
               body: comment
             });
-      
+
       - name: Verify Release
         run: |
           echo "✅ Release created successfully"
@@ -119,12 +120,12 @@ jobs:
           echo "Previous: ${{ steps.release.outputs.previous_version }}"
           echo "Bump type: ${{ steps.release.outputs.bump_type }}"
           echo "URL: ${{ steps.release.outputs.release_url }}"
-          
+
           if [[ -f release-notes.md ]]; then
             echo -e "\n📝 Release Notes:"
             cat release-notes.md
           fi
-      
+
       - name: Delete Test Release
         if: always()
         run: |
@@ -133,7 +134,7 @@ jobs:
             echo "🗑️ Cleaning up test release..."
             gh release delete ${{ steps.release.outputs.new_version }} --yes || true
           fi
-          
+
           # Restore the original action
           mv release/action.yml.bak release/action.yml || true
         env:
@@ -146,7 +147,10 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
       - name: Setup Test Environment
         run: |
           # Create test files
@@ -155,50 +159,65 @@ jobs:
           echo "WORKDIR /app" >> src/helloworld/Dockerfile
           echo "COPY . ." >> src/helloworld/Dockerfile
           echo "CMD [\"node\", \"index.js\"]" >> src/helloworld/Dockerfile
-          
+
           echo "name: hello-world" > src/helloworld/app.yaml
           echo "version: 1.0.0" >> src/helloworld/app.yaml
           echo "description: Test application" >> src/helloworld/app.yaml
-          
+
           # Create a test branch to compare against
           git checkout -b test-base
           git add .
           git commit -m "Initial test commit" || true
-          
+
           # Make changes on a new branch
           git checkout -b test-changes
           echo "console.log('Hello World');" > src/helloworld/index.js
           mkdir -p src/another-app
           echo "FROM alpine:latest" > src/another-app/Dockerfile
           git add .
-          
-      - name: Analyze Build Scope (with changes)
+
+      - name: Build Docker image for Build Scope Analyzer
+        run: |
+          SHORT_SHA=$(git rev-parse --short=8 HEAD)
+          ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          docker build -t ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA ./build-scope-analyzer
+
+      - name: Push Docker image to GHCR
+        run: |
+          SHORT_SHA=$(git rev-parse --short=8 HEAD)
+          ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          docker push ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA
+
+      - name: Analyze Build Scope (with changes) using container
         id: scope
-        uses: ./build-scope-analyzer
-        with:
-          ref: test-base
-      
+        run: |
+          SHORT_SHA=$(git rev-parse --short=8 HEAD)
+          ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          docker run --rm \
+            -v "$(pwd):/github/workspace" \
+            -e GITHUB_WORKSPACE=/github/workspace \
+            ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA \
+            --root-path /github/workspace --ref test-base --output-format json > matrix.json
+          echo "matrix=$(cat matrix.json | jq -c .)" >> $GITHUB_OUTPUT
+
       - name: Verify Analysis Results
         run: |
-          echo "Has changes: ${{ steps.scope.outputs.has-changes }}"
-          echo "Matrix: ${{ steps.scope.outputs.matrix }}"
-          echo "Deleted folders: ${{ steps.scope.outputs.deleted-folders }}"
-          echo "Ref used: ${{ steps.scope.outputs.ref }}"
-          
-          # Parse and display matrix
-          if [[ "${{ steps.scope.outputs.has-changes }}" == "true" ]]; then
-            echo "Matrix content:"
-            echo '${{ steps.scope.outputs.matrix }}' | jq .
-          fi
-      
-      - name: Test with Include Pattern
+          echo "Matrix: $(cat matrix.json)"
+          cat matrix.json | jq .
+
+      - name: Test with Include Pattern using container
         id: scope-include
-        uses: ./build-scope-analyzer
-        with:
-          ref: test-base
-          include-pattern: 'src/helloworld/*'
-      
+        run: |
+          SHORT_SHA=$(git rev-parse --short=8 HEAD)
+          ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          docker run --rm \
+            -v "$(pwd):/github/workspace" \
+            -e GITHUB_WORKSPACE=/github/workspace \
+            ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA \
+            --root-path /github/workspace --ref test-base --include-pattern 'src/helloworld/*' --output-format json > matrix-include.json
+          echo "matrix=$(cat matrix-include.json | jq -c .)" >> $GITHUB_OUTPUT
+
       - name: Verify Include Pattern Results
         run: |
-          echo "Has changes (include pattern): ${{ steps.scope-include.outputs.has-changes }}"
-          echo "Matrix (include pattern): ${{ steps.scope-include.outputs.matrix }}" 
+          echo "Matrix (include pattern): $(cat matrix-include.json)"
+          cat matrix-include.json | jq .
