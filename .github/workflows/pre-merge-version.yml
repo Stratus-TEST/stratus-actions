@@ -36,6 +36,7 @@ jobs:
               body
             });
       - name: Update all action.yml, action.yaml, and pyproject.toml files with next version
+        id: update-files
         run: |
           VERSION=${{ steps.version.outputs.new_version }}
           VERSION_NO_V=${VERSION#v}
@@ -55,7 +56,7 @@ jobs:
             echo "changed=false" >> $GITHUB_OUTPUT
           fi
       - name: Create GitHub App JWT and Installation Access Token
-        if: steps.version.outputs.changed == 'true'
+        if: steps.update-files.outputs.changed == 'true'
         id: jwt
         env:
           STRATUS_GA_BOT_PEM: ${{ secrets.STRATUS_GA_BOT_PEM }}
@@ -93,7 +94,7 @@ jobs:
 
           rm private-key.pem
       - name: Commit and push version bump via API
-        if: steps.version.outputs.changed == 'true'
+        if: steps.update-files.outputs.changed == 'true'
         uses: actions/github-script@v7
         with:
           github-token: ${{ steps.jwt.outputs.strauts_ga_bot_installation_token }}
