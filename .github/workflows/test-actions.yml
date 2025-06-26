@@ -167,6 +167,7 @@ jobs:
           fi
 
           # Delete all test tags (test-v*, test-latest, etc)
+          git fetch --tags
           for tag in $(git tag -l 'test-*'); do
             echo "Deleting test tag: $tag"
             git push --delete origin "$tag" || true
