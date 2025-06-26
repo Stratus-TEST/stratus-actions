@@ -2,7 +2,7 @@ FROM alpine:latest AS build
 
 WORKDIR /app
 
-RUN apk --no-cache upgrade && apk --no-cache add gcc musl-dev python3 py3-pip py3-venv
+RUN apk --no-cache upgrade && apk --no-cache add gcc musl-dev python3 py3-pip
 
 COPY pyproject.toml /app/
 RUN python3 -m venv /venv
@@ -11,7 +11,7 @@ RUN /venv/bin/pip install --no-cache-dir --upgrade pip setuptools wheel && \
 
 FROM alpine:latest
 
-RUN apk --no-cache add git python3 py3-pip py3-venv
+RUN apk --no-cache add git python3 py3-pip
 
 LABEL org.opencontainers.image.source="https://github.com/stratus-test/stratus-gh-actions"
 LABEL org.opencontainers.image.description="Build Scope Analyzer - Analyze git changes to identify what needs to be built"
