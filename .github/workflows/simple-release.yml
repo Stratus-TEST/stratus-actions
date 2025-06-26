@@ -29,6 +29,19 @@ jobs:
           draft: false
           prerelease: false
 
+      - name: Update all action.yml and pyproject.toml files with new version
+        run: |
+          VERSION=${{ steps.release.outputs.new_version }}
+          VERSION_NO_V=${VERSION#v}
+          # Update all action.yml image tags
+          find . -type f -name action.yml | while read f; do
+            sed -i "s|image: \"docker://ghcr.io/.*/stratus-gh-actions/.\+:.*\"|image: \"docker://ghcr.io/${{ github.repository }}/$(basename $(dirname $f)):${VERSION}\"|" "$f"
+          done
+          # Update all pyproject.toml version fields
+          find . -type f -name pyproject.toml | while read f; do
+            sed -i "s/^version = \".*\"/version = \"${VERSION_NO_V}\"/" "$f"
+          done
+
       - name: Find containerized actions
         id: find-docker
         run: |
