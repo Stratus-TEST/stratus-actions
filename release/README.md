@@ -1,6 +1,6 @@
 # Simple Version Bump and Release Action
 
-A lightweight GitHub Action that automates version bumping, tag creation, and release generation using GitHub's native release notes.
+A lightweight composite GitHub Action (Bash + GitHub Script) that automates version bumping, tag creation, and release generation using GitHub's native release notes. No Docker or Node.js runtime required.
 
 ## Features
 
@@ -9,11 +9,12 @@ A lightweight GitHub Action that automates version bumping, tag creation, and re
 - 📝 Native GitHub release notes generation (no external dependencies)
 - 🎯 Simple and reliable
 - 📋 Zero configuration required
+- ✅ Works for both PR merges and direct pushes to main
 
 ## How It Works
 
 1. **For Pull Requests**: Reads PR labels to determine version bump
-2. **For Push Events**: Parses commit messages for version keywords
+2. **For Push Events**: Parses the latest commit message on the branch for version keywords
 3. Creates a new semantic version tag (e.g., v1.2.3)
 4. Updates the major version tag (e.g., v1) to reference the latest release in that major version
 5. Updates the "latest" tag to always point to the most recent release
@@ -224,6 +225,13 @@ This action manages three levels of Git tags for your releases:
 - **Latest releases**: Users can reference `latest` to always use the most current version.
 
 These tags are force-updated with each release to ensure they always point to the correct commit.
+
+## Troubleshooting & FAQ
+
+- **Q: Are the tags/releases created by this action "Verified"?**
+  - A: Yes, tags and releases created via the GitHub API or web UI are signed by GitHub and show as "Verified" in the commit history.
+- **Q: Can I use this action in a fork or mirror repo?**
+  - A: Yes, but ensure you have write permissions and the correct token setup for your use case.
 
 ## License
 

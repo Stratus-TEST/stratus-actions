@@ -12,6 +12,7 @@ jobs:
   pre-merge-version:
     name: Check Next Semantic Version
     runs-on: ubuntu-latest
+    if: github.repository == 'stratus-test/stratus-gh-actions' # Only run on the base repository
     steps:
       - uses: actions/checkout@v4
         with:

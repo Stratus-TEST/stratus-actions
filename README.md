@@ -1,5 +1,9 @@
 # Stratus GitHub Actions
 
+> **⚠️ NOTE: This repository is currently a mirror of the canonical development repository at [`stratus-test/stratus-gh-actions`](https://github.com/stratus-test/stratus-gh-actions). All maintenance and development are performed in the `stratus-test` organization while we await a design decision to support public packages in the HafslundEcoVannkraft organization.**
+>
+> **Remote updates, tags, and releases are automatically synced from `stratus-test/stratus-gh-actions` every 15 minutes or by manual workflow dispatch. Please submit issues and pull requests to the `stratus-test` repository.**
+
 Welcome to `stratus-gh-actions`! This repository hosts a collection of reusable composite GitHub Actions to streamline workflows across repositories. The repository is public, you can easily share actions with any repository, ensuring consistency and reducing duplicated code.
 
 ## Table of Contents
@@ -33,6 +37,7 @@ The `stratus-gh-actions` repository is designed to simplify and standardize work
 
 - **Reusable**: Use the same action in multiple workflows and repositories, improving consistency.
 - **Public Access**: As a public repository, actions here can be used in both public and private/internal repositories.
+- **Containerized Actions**: Some actions (like build-scope-analyzer) are distributed as Docker containers for maximum compatibility and reproducibility.
 - **Version Control**: Keep track of changes to actions across repositories, ensuring stability with tagged versions.
 - **Simple and Reliable**: Actions use GitHub's native features without external dependencies.
 
@@ -43,16 +48,20 @@ The repository is organized with each action in its own folder at the root level
 ```plaintext
 stratus-gh-actions/
 ├── build-scope-analyzer/
+│   ├── Dockerfile
+│   ├── README.md
 │   ├── action.yml
-│   ├── build_scope_analyzer.py
-│   └── README.md
-├── release/
-│   ├── action.yml
-│   └── README.md
+│   ├── example-outputs.md
+│   ├── example-workflow.yml
+│   ├── main.py
+│   └── pyproject.toml
 ├── hello-world/
+│   ├── README.md
 │   ├── action.yml
-│   ├── entrypoint.sh
-│   └── README.md
+│   └── entrypoint.sh
+├── release/
+│   ├── README.md
+│   └── action.yml
 ├── .github/
 │   └── workflows/
 └── README.md
@@ -71,7 +80,7 @@ uses: HafslundEcoVannkraft/stratus-gh-actions/[action-name]@v3
 Replace:
 
 - `[action-name]` with the specific action folder name (e.g., `release`, `hello-world`, `build-scope-analyzer`)
-- `@main` with the desired version tag or branch
+- `@v3` with the desired version tag or branch
 
 ## Available Actions
 
@@ -111,7 +120,7 @@ For detailed information about this action, see the [release action documentatio
 
 ### Build Scope Analyzer Action
 
-An intelligent action that analyzes git changes to determine what needs to be built, generating a strategy matrix for GitHub Actions workflows. This action helps optimize CI/CD pipelines by only building what has changed.
+A containerized action (Python, Docker) that analyzes git changes to determine what needs to be built, generating a strategy matrix for GitHub Actions workflows. This action helps optimize CI/CD pipelines by only building what has changed.
 
 **Key Features:**
 
@@ -119,6 +128,7 @@ An intelligent action that analyzes git changes to determine what needs to be bu
 - 📊 Generates GitHub Actions strategy matrix
 - 🗑️ Identifies deleted folders for cleanup
 - 🎯 Supports include/exclude patterns for fine-grained control
+- 🐳 Runs as a Docker container for consistent, isolated execution
 
 For detailed information about this action, see the [build-scope-analyzer action documentation](build-scope-analyzer/README.md).
 
@@ -248,4 +258,3 @@ The repository automatically handles versioning through the release action. You 
 ## License
 
 MIT
-
