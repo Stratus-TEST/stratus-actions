@@ -14,6 +14,8 @@ jobs:
   create-release:
     if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    outputs:
+      docker_dirs: ${{ steps.find-docker.outputs.dirs }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,6 +28,23 @@ jobs:
           draft: false
           prerelease: false
 
+      - name: Find containerized actions
+        id: find-docker
+        run: |
+          find . -maxdepth 2 -mindepth 2 -name Dockerfile -exec dirname {} \; | sed 's|^./||' > docker_dirs.txt
+          echo "dirs=$(jq -c -R -s 'split("\n") | map(select(length > 0))' docker_dirs.txt)" >> $GITHUB_OUTPUT
+
+  build-and-push-images:
+    needs: create-release
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dir: ${{ fromJson(needs.create-release.outputs.docker_dirs) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
@@ -36,7 +55,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}/build-scope-analyzer
+          images: ghcr.io/${{ github.repository }}/${{ matrix.dir }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
@@ -51,12 +70,11 @@ jobs:
           DOCKER_METADATA_OUTPUT_LABELS: ${{ steps.meta.outputs.labels }}
         run: |
           ORG_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
-          IMAGE=ghcr.io/$ORG_REPO/build-scope-analyzer
-          # Build with all tags and labels
+          IMAGE=ghcr.io/$ORG_REPO/${{ matrix.dir }}
           docker buildx build \
             --push \
             --platform linux/amd64 \
             --tag $IMAGE:sha-$(git rev-parse --short=7 ${{ github.sha }}) \
             $(echo "$DOCKER_METADATA_OUTPUT_TAGS" | xargs -n 1 echo --tag) \
             $(echo "$DOCKER_METADATA_OUTPUT_LABELS" | xargs -n 1 echo --label) \
-            .
+            ./${{ matrix.dir }}
