@@ -2,7 +2,7 @@ name: Pre-Merge Version Check
 
 on:
   pull_request:
-    types: [opened, labeled]
+    types: [opened, synchronize, labeled]
 
 permissions:
   contents: write
@@ -35,13 +35,18 @@ jobs:
               issue_number: context.issue.number,
               body
             });
-      - name: Update action.yml and pyproject.toml with next version
+      - name: Update all action.yml, action.yaml, and pyproject.toml files with next version
         run: |
           VERSION=${{ steps.version.outputs.new_version }}
-          # Remove leading 'v' if present for pyproject.toml
           VERSION_NO_V=${VERSION#v}
-          sed -i "s|image: \"docker://ghcr.io/hafslundecoVannkraft/stratus-gh-actions/build-scope-analyzer:.*\"|image: \"docker://ghcr.io/hafslundecoVannkraft/stratus-gh-actions/build-scope-analyzer:${VERSION}\"|" build-scope-analyzer/action.yml
-          sed -i "s/^version = \".*\"/version = \"${VERSION_NO_V}\"/" build-scope-analyzer/pyproject.toml
+          # Update all action.yml and action.yaml image tags
+          find . -type f \( -name action.yml -o -name action.yaml \) | while read f; do
+            sed -i "s|image: \"docker://ghcr.io/.*/stratus-gh-actions/.\+:.*\"|image: \"docker://ghcr.io/${{ github.repository }}/$(basename $(dirname $f)):${VERSION}\"|" "$f"
+          done
+          # Update all pyproject.toml version fields
+          find . -type f -name pyproject.toml | while read f; do
+            sed -i "s/^version = \".*\"/version = \"${VERSION_NO_V}\"/" "$f"
+          done
           if git diff --exit-code > /dev/null; then
             echo "changed=false" >> $GITHUB_OUTPUT
           else
