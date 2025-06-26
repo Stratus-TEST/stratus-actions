@@ -5,7 +5,7 @@ A lightweight composite GitHub Action (Bash + GitHub Script) that automates vers
 ## Features
 
 - 🔄 Automatic version bumping based on PR labels or commit messages
-- 🏷️ Git tag creation and management (including major version and "latest" tags)
+- 🏷️ Git tag creation and management (including major version and "latest" tags) **via the GitHub API for Verified status**
 - 📝 Native GitHub release notes generation (no external dependencies)
 - 🎯 Simple and reliable
 - 📋 Zero configuration required
@@ -212,7 +212,7 @@ The v2 release removes all AI-powered features and external dependencies:
 
 ## Tag Management
 
-This action manages three levels of Git tags for your releases:
+This action manages three levels of Git tags for your releases, **always using the GitHub API (never git) so all tags are Verified**:
 
 1. **Specific version tags** (e.g., `v1.2.3`): Created for each release based on version bumping rules.
 2. **Major version tags** (e.g., `v1`): Automatically updated to point to the latest release within that major version.
@@ -224,12 +224,14 @@ This action manages three levels of Git tags for your releases:
 - **Major version stability**: Users can reference major versions (`v1`) to get the latest updates without breaking changes.
 - **Latest releases**: Users can reference `latest` to always use the most current version.
 
+All tags are created and updated using the GitHub API, never with git, so they always show as **Verified** in the GitHub UI.
+
 These tags are force-updated with each release to ensure they always point to the correct commit.
 
 ## Troubleshooting & FAQ
 
 - **Q: Are the tags/releases created by this action "Verified"?**
-  - A: Yes, tags and releases created via the GitHub API or web UI are signed by GitHub and show as "Verified" in the commit history.
+  - A: Yes, all tags and releases are created and updated via the GitHub API (never git), so they are always signed by GitHub and show as "Verified" in the commit history.
 - **Q: Can I use this action in a fork or mirror repo?**
   - A: Yes, but ensure you have write permissions and the correct token setup for your use case.
 
