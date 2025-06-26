@@ -45,7 +45,7 @@ jobs:
           cp release/action.yml release/action.yml.bak
 
           # Modify the action to skip the actual git push
-          sed -i "" "s/git push origin/echo \"MOCK: Would push tag\"/g" release/action.yml || sed -i "s/git push origin/echo \"MOCK: Would push tag\"/g" release/action.yml
+          sed -i "s/git push origin/echo \"MOCK: Would push tag\"/g" release/action.yml
 
       - name: Create Test Release
         id: release
@@ -53,21 +53,52 @@ jobs:
         with:
           draft: true
           prerelease: true
+          tag-prefix: test-
 
       - name: Capture Release Details
         id: release-details
         if: steps.release.outputs.release_url != ''
-        run: |
-          # Get the release details using GitHub CLI
-          release_body=$(gh release view ${{ steps.release.outputs.new_version }} --json body -q .body)
-
-          # Save to file for multi-line handling
-          echo "$release_body" > release-notes.md
-
-          # Also get release metadata
-          gh release view ${{ steps.release.outputs.new_version }} --json name,tagName,isDraft,isPrerelease,createdAt > release-metadata.json
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            // Use the release_url output from the previous step
+            const releaseUrl = process.env.RELEASE_URL;
+            // Extract the release ID from the URL (last segment)
+            const match = releaseUrl && releaseUrl.match(/\/releases\/tag\/([^/]+)/);
+            if (!match) throw new Error('Could not extract release tag from release_url');
+            const tag = decodeURIComponent(match[1]);
+            let release;
+            for (let i = 0; i < 5; i++) {
+              try {
+                const { data } = await github.rest.repos.getReleaseByTag({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tag
+                });
+                release = data;
+                break;
+              } catch (err) {
+                if (err.status === 404 && i < 4) {
+                  await new Promise(res => setTimeout(res, 3000)); // wait 3 seconds
+                } else {
+                  throw err;
+                }
+              }
+            }
+            if (!release) throw new Error('Release not found after retries');
+            fs.writeFileSync('release-notes.md', release.body || '');
+            const metadata = {
+              name: release.name,
+              tagName: release.tag_name,
+              isDraft: release.draft,
+              isPrerelease: release.prerelease,
+              createdAt: release.created_at
+            };
+            fs.writeFileSync('release-metadata.json', JSON.stringify(metadata, null, 2));
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_URL: ${{ steps.release.outputs.release_url }}
 
       - name: Post Release Preview to PR
         if: github.event_name == 'pull_request' && steps.release.outputs.release_url != ''
@@ -126,14 +157,20 @@ jobs:
             cat release-notes.md
           fi
 
-      - name: Delete Test Release
+      - name: Delete Test Releases and Test Tags
         if: always()
         run: |
-          # Delete the release if it was created
-          if [[ -n "${{ steps.release.outputs.new_version }}" ]]; then
-            echo "🗑️ Cleaning up test release..."
-            gh release delete ${{ steps.release.outputs.new_version }} --yes || true
-          fi
+          # Delete all releases (draft or published) with tag starting with 'test-'
+          for tag in $(gh release list --limit 1000 --json tagName | jq -r '.[].tagName' | grep '^test-'); do
+            echo "Deleting release with tag: $tag"
+            gh release delete "$tag" --yes || true
+          done
+
+          # Delete all test tags (test-v*, test-latest, etc)
+          for tag in $(git tag -l 'test-*'); do
+            echo "Deleting test tag: $tag"
+            git push --delete origin "$tag" || true
+          done
 
           # Restore the original action
           mv release/action.yml.bak release/action.yml || true
@@ -221,3 +258,19 @@ jobs:
         run: |
           echo "Matrix (include pattern): $(cat matrix-include.json)"
           cat matrix-include.json | jq .
+
+  test-hello-world-docker:
+    name: Test Hello World Docker Action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test Hello World Docker Action
+        id: hello-docker
+        uses: ./hello-world-docker
+        with:
+          who-to-greet: "Stratus Docker"
+
+      - name: Print Docker Action Output
+        run: |
+          echo "Docker action time output: ${{ steps.hello-docker.outputs.time }}"

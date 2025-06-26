@@ -15,6 +15,10 @@ inputs:
     description: "If true, only calculate and output the next version, do not tag or release"
     required: false
     default: "false"
+  tag-prefix:
+    description: "Optional prefix for all tags (e.g., 'test-'). Useful for test runs."
+    required: false
+    default: ""
 
 outputs:
   new_version:
@@ -150,31 +154,58 @@ runs:
         echo "previous_version=$latest_tag" >> "$GITHUB_OUTPUT"
         echo "bump_type=$bump_type" >> "$GITHUB_OUTPUT"
         echo "major=$major" >> "$GITHUB_OUTPUT"
+        echo "tag_prefix=${{ inputs.tag-prefix }}" >> "$GITHUB_OUTPUT"
 
-    - name: Create Tags
+    - name: Create Tags (API)
       if: inputs.dry-run != 'true'
-      shell: bash
-      run: |
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      id: tags
+      uses: actions/github-script@v7
+      with:
+        script: |
+          // Helper to create or update a tag ref
+          async function createOrUpdateTag(tag, sha) {
+            const ref = `refs/tags/${tag}`;
+            try {
+              // Try to create the tag ref
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref,
+                sha
+              });
+              console.log(`Created tag: ${tag}`);
+            } catch (err) {
+              if (err.status === 422 && err.message.includes('Reference already exists')) {
+                // Tag exists, update it
+                await github.rest.git.updateRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: `tags/${tag}`,
+                  sha,
+                  force: true
+                });
+                console.log(`Updated tag: ${tag}`);
+              } else {
+                throw err;
+              }
+            }
+          }
 
-        # Create a new tag for the new version
-        git tag -a "${{ steps.version.outputs.new_version }}" -m "Release ${{ steps.version.outputs.new_version }}"
-        git push origin "${{ steps.version.outputs.new_version }}"
+          // Get the commit SHA to tag
+          const sha = context.sha;
+          const newVersion = '${{ steps.version.outputs.new_version }}';
+          const major = '${{ steps.version.outputs.major }}';
+          const tagPrefix = '${{ inputs.tag-prefix }}';
+          // Create/update version tag (e.g., v1.2.3)
+          await createOrUpdateTag(`${tagPrefix}${newVersion}`, sha);
 
-        # Force update the major version tag to point to the current commit
-        if [[ "${{ steps.version.outputs.major }}" -gt 0 ]]; then
-          # Extract the major version from the new version (more reliably)
-          new_major=$(echo "${{ steps.version.outputs.new_version }}" | sed 's/^v//' | cut -d. -f1)
+          // Create/update major tag (e.g., v1)
+          if (parseInt(major) > 0) {
+            await createOrUpdateTag(`${tagPrefix}v${major}`, sha);
+          }
 
-          # Create or update the major version tag
-          git tag -f "v${new_major}"
-          git push origin "v${new_major}" --force
-        fi
-
-        # Create or update the 'latest' tag to always point to the most recent release
-        git tag -f "latest"
-        git push origin "latest" --force
+          // Create/update 'latest' tag
+          await createOrUpdateTag(`${tagPrefix}latest`, sha);
 
     - name: Create Release
       if: inputs.dry-run != 'true'
@@ -182,13 +213,19 @@ runs:
       uses: actions/github-script@v7
       with:
         script: |
+          const tagPrefix = '${{ inputs.tag-prefix }}';
+          const releaseTag = `${tagPrefix}${{ steps.version.outputs.new_version }}`;
+          const draft = ${{ inputs.draft }} === true || ${{ inputs.draft }} === 'true';
+          const prerelease = ${{ inputs.prerelease }} === true || ${{ inputs.prerelease }} === 'true';
+          const isDryRun = core.getInput('dry-run') === 'true';
+          console.log(`Creating release for tag: ${releaseTag}, draft: ${draft}, prerelease: ${prerelease}, dry-run: ${isDryRun}`);
           const { data: release } = await github.rest.repos.createRelease({
             owner: context.repo.owner,
             repo: context.repo.repo,
-            tag_name: '${{ steps.version.outputs.new_version }}',
-            name: '${{ steps.version.outputs.new_version }}',
-            draft: ${{ inputs.draft }},
-            prerelease: ${{ inputs.prerelease }},
+            tag_name: releaseTag,
+            name: releaseTag,
+            draft,
+            prerelease,
             target_commitish: context.sha,
             generate_release_notes: true  // Use GitHub's native release notes
           });
@@ -196,12 +233,20 @@ runs:
           console.log(`Created release: ${release.html_url}`);
           core.setOutput('release_url', release.html_url);
 
-          // Only comment on PR if this is a PR event and not a dry-run
-          if (context.eventName === 'pull_request' && context.payload.pull_request && !${{ inputs.dry-run }}) {
+
+          // Only comment on PR if this is a PR event, not a dry-run, not a test tag, and not a draft/prerelease
+          if (
+            context.eventName === 'pull_request' &&
+            context.payload.pull_request &&
+            !isDryRun &&
+            !tagPrefix &&
+            !draft &&
+            !prerelease
+          ) {
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.pull_request.number,
-              body: `🚀 Released version ${{ steps.version.outputs.new_version }}!\n\nView the release: ${release.html_url}`
+              body: `🚀 Released version ${releaseTag}!\n\nView the release: ${release.html_url}`
             });
           }
