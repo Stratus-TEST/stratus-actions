@@ -23,11 +23,11 @@ jobs:
         run: |
           # Get the latest commit SHA on the PR branch
           COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
-          # Get the committer login using the GitHub API
-          COMMITTER_LOGIN=$(gh api repos/${{ github.repository }}/commits/$COMMIT_SHA --jq '.committer.login')
-          echo "Committer login: $COMMITTER_LOGIN"
-          # Replace 'stratus-ga-bot[bot]' with your app's bot login
-          if [[ "$COMMITTER_LOGIN" == "stratus-ga-bot[bot]" ]]; then
+          # Get the author login using the GitHub API
+          AUTHOR_LOGIN=$(gh api repos/${{ github.repository }}/commits/$COMMIT_SHA --jq '.author.login')
+          echo "Author login: $AUTHOR_LOGIN"
+          # Replace 'stratus-ga-bot-stratus-test[bot]' with your app's bot login
+          if [[ "$AUTHOR_LOGIN" == "stratus-ga-bot-stratus-test[bot]" ]]; then
             echo "skip=true" >> $GITHUB_OUTPUT
           else
             echo "skip=false" >> $GITHUB_OUTPUT
@@ -194,10 +194,6 @@ jobs:
                 message: `chore: bump version to ${version} [pre-merge]`,
                 tree: newTree.data.sha,
                 parents: [currentCommitSha],
-                committer: {
-                  name: 'stratus-ga-bot[bot]',
-                  email: 'stratus-ga-bot[bot]@users.noreply.github.com'
-                }
               });
 
               // Update branch reference
