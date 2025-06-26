@@ -59,10 +59,7 @@ jobs:
           images: ghcr.io/${{ github.repository }}/${{ matrix.dir }}
           tags: |
             type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=ref,event=branch
-            type=sha,format=short
+            type=semver,pattern=v{{major}}
             latest
 
       - name: Build and push Docker images
@@ -72,10 +69,18 @@ jobs:
         run: |
           ORG_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
           IMAGE=ghcr.io/$ORG_REPO/${{ matrix.dir }}
+          # Get the semantic version from the release step output
+          VERSION=${{ needs.create-release.outputs.version || steps.meta.outputs.version || 'latest' }}
+          # Extract major version (e.g., v3)
+          MAJOR_TAG=$(echo "$VERSION" | grep -oE '^v?[0-9]+')
+          # Build and push with all tags
           docker buildx build \
             --push \
             --platform linux/amd64 \
             --tag $IMAGE:sha-$(git rev-parse --short=7 ${{ github.sha }}) \
+            --tag $IMAGE:$VERSION \
+            --tag $IMAGE:$MAJOR_TAG \
+            --tag $IMAGE:latest \
             $(echo "$DOCKER_METADATA_OUTPUT_TAGS" | xargs -n 1 echo --tag) \
             $(echo "$DOCKER_METADATA_OUTPUT_LABELS" | xargs -n 1 echo --label) \
             ./${{ matrix.dir }}
