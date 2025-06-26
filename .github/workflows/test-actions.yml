@@ -157,17 +157,16 @@ jobs:
             cat release-notes.md
           fi
 
-      - name: Delete Test Release and Test Tags
+      - name: Delete Test Releases and Test Tags
         if: always()
         run: |
-          # Delete the test release if it was created
-          if [[ -n "${{ steps.release.outputs.new_version }}" ]]; then
-            echo "🗑️ Cleaning up test release..."
-            gh release delete ${{ steps.release.outputs.new_version }} --yes || true
-          fi
+          # Delete all releases (draft or published) with tag starting with 'test-'
+          for tag in $(gh release list --limit 1000 --json tagName | jq -r '.[].tagName' | grep '^test-'); do
+            echo "Deleting release with tag: $tag"
+            gh release delete "$tag" --yes || true
+          done
 
           # Delete all test tags (test-v*, test-latest, etc)
-          git fetch --tags
           for tag in $(git tag -l 'test-*'); do
             echo "Deleting test tag: $tag"
             git push --delete origin "$tag" || true
