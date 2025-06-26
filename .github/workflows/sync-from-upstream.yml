@@ -1,0 +1,46 @@
+name: Sync from Upstream
+
+on:
+  schedule:
+    - cron: '0 * * * *' # every hour
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-upstream:
+    runs-on: ubuntu-latest
+    if: github.repository == 'hafslundecovannkraft/stratus-gh-actions' # Only run on the remote repository
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Add upstream and fetch
+        env:
+          UPSTREAM_REPO: stratus-test/stratus-gh-actions
+        run: |
+          git remote add upstream https://github.com/$UPSTREAM_REPO.git
+          git fetch upstream --tags
+          git fetch upstream main
+
+      - name: Push tags to origin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git push origin --tags
+
+      - name: Force update main branch from upstream
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git checkout main
+          git reset --hard upstream/main
+          git push origin main --force
