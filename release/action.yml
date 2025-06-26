@@ -215,13 +215,17 @@ runs:
         script: |
           const tagPrefix = '${{ inputs.tag-prefix }}';
           const releaseTag = `${tagPrefix}${{ steps.version.outputs.new_version }}`;
+          const draft = ${{ inputs.draft }} === true || ${{ inputs.draft }} === 'true';
+          const prerelease = ${{ inputs.prerelease }} === true || ${{ inputs.prerelease }} === 'true';
+          const isDryRun = core.getInput('dry-run') === 'true';
+          console.log(`Creating release for tag: ${releaseTag}, draft: ${draft}, prerelease: ${prerelease}, dry-run: ${isDryRun}`);
           const { data: release } = await github.rest.repos.createRelease({
             owner: context.repo.owner,
             repo: context.repo.repo,
             tag_name: releaseTag,
             name: releaseTag,
-            draft: ${{ inputs.draft }},
-            prerelease: ${{ inputs.prerelease }},
+            draft,
+            prerelease,
             target_commitish: context.sha,
             generate_release_notes: true  // Use GitHub's native release notes
           });
@@ -229,10 +233,16 @@ runs:
           console.log(`Created release: ${release.html_url}`);
           core.setOutput('release_url', release.html_url);
 
-          const isDryRun = core.getInput('dry-run') === 'true';
 
-          // Only comment on PR if this is a PR event and not a dry-run
-          if (context.eventName === 'pull_request' && context.payload.pull_request && !isDryRun) {
+          // Only comment on PR if this is a PR event, not a dry-run, not a test tag, and not a draft/prerelease
+          if (
+            context.eventName === 'pull_request' &&
+            context.payload.pull_request &&
+            !isDryRun &&
+            !tagPrefix &&
+            !draft &&
+            !prerelease
+          ) {
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
