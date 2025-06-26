@@ -11,7 +11,7 @@ permissions:
 jobs:
   sync-upstream:
     runs-on: ubuntu-latest
-    if: github.repository == 'hafslundecovannkraft/stratus-gh-actions' # Only run on the remote repository
+    if: github.repository == 'hafslundecovannkraft/stratus-gh-actions' # Only run on the forked repository
     steps:
       - name: Checkout fork
         uses: actions/checkout@v4

@@ -4,19 +4,35 @@
 
 Build Scope Analyzer is a GitHub Action and CLI tool that analyzes changes in a git repository to determine which applications and containers need to be built, deployed, or cleaned up. It is designed for monorepos and multi-app repositories, especially those using containerized applications.
 
-- **Smart Change Detection:** Analyzes git diffs to identify changed files and folders
+- **Smart Change Detection:** Analyzes git diffs to identify changed, deleted, and renamed files and folders
 - **Deletion Tracking:** Detects deleted apps or containers for proper cleanup
 - **Multi-Container Support:** Handles multiple apps and containers per repo
 - **Custom Docker Build Context:** Supports custom Docker build contexts via `# @context: ...` in Dockerfiles
 - **Matrix Outputs:** Generates strategy matrices for parallel builds and deployments
 - **Secure & Reproducible:** Runs in a minimal, non-root Docker container for consistent results
 
+## Inputs
+
+| Input             | Description                                                    | Default                   |
+| ----------------- | -------------------------------------------------------------- | ------------------------- |
+| `root-path`       | Root path to search for changes (defaults to GITHUB_WORKSPACE) | `${{ github.workspace }}` |
+| `include-pattern` | Glob pattern for paths to include (e.g., `apps/*`)             | `*`                       |
+| `exclude-pattern` | Glob pattern for paths to exclude (e.g., `docs/*`)             | `""`                      |
+| `ref`             | Git ref to compare against (defaults to automatic detection)   | `""`                      |
+
+## Outputs
+
+| Output   | Description                                       |
+| -------- | ------------------------------------------------- |
+| `matrix` | JSON matrix structure with all app/container data |
+| `ref`    | Git ref used for comparison                       |
+
 ## Usage as a GitHub Action
 
 ```yaml
 - name: Analyze Build Scope
   id: analyze
-  uses: HafslundEcoVannkraft/stratus-gh-actions/stratus-gh-actions/build-scope-analyzer@vX.Y.Z
+  uses: HafslundEcoVannkraft/stratus-gh-actions/build-scope-analyzer@vX.Y.Z
   with:
     root-path: ${{ github.workspace }}
     include-pattern: "apps/*"
@@ -32,21 +48,26 @@ Build Scope Analyzer is a GitHub Action and CLI tool that analyzes changes in a 
 docker run --rm \
   -v "$(git rev-parse --show-toplevel):/github/workspace" \
   -e GITHUB_WORKSPACE=/github/workspace \
-  ghcr.io/hafslundecoVannkraft/stratus-gh-actions/build-scope-analyzer:latest \
+  ghcr.io/stratus-test/stratus-gh-actions/build-scope-analyzer:latest \
   --root-path /github/workspace
 ```
 
 - All arguments after the image name are passed to the Python program.
 - The container checks for a valid git repository using git commands.
 - If not run inside a git repo, a warning is shown and results may not be as expected.
+- The image source may change depending on which org is canonical (see repo notice).
 
 ## Command-line Arguments
 
 Run with `--help` to see all options:
 
 ```bash
-docker run --rm -v "$(git rev-parse --show-toplevel):/github/workspace" -e GITHUB_WORKSPACE=/github/workspace build-scope-analyzer --help
+docker run --rm -v "$(git rev-parse --show-toplevel):/github/workspace" -e GITHUB_WORKSPACE=/github/workspace ghcr.io/stratus-test/stratus-gh-actions/build-scope-analyzer:latest --help
 ```
+
+- `--output-format github` (default) outputs for GitHub Actions
+- `--output-format json` outputs plain JSON for CLI use
+- `--mock-git` enables mock mode for local testing without a git repo
 
 ## Example Output Structure
 
@@ -74,9 +95,16 @@ The action outputs a matrix with the following structure:
 
 - See [example-outputs.md](./example-outputs.md) for more scenarios.
 
+## How It Works
+
+- Detects changed, deleted, and renamed files using git diff
+- Groups changes by app/container folder
+- Finds Dockerfiles and app.yaml/app.yml in each folder
+- Outputs a matrix for use in downstream jobs (build, deploy, cleanup)
+
 ## Development & Testing
 
-- The action is fully tested via GitHub Actions workflows.
+- The action is fully tested via GitHub Actions workflows ([test-actions.yml](../.github/workflows/test-actions.yml)).
 - For local testing:
   ```bash
   docker build -t build-scope-analyzer .
@@ -85,11 +113,20 @@ The action outputs a matrix with the following structure:
 - To run Python tests locally:
   Use standard Python unittest or pytest in the `/tests` directory.
 
+## Troubleshooting & FAQ
+
+- **Q: What happens if not run in a git repo?**
+  - A: The action will warn and may not produce expected results. Use `--mock-git` for local testing.
+- **Q: How do I debug missing or unexpected changes?**
+  - A: Check the `ref` used for comparison and ensure your include/exclude patterns are correct.
+- **Q: How do I use this in a fork or mirror repo?**
+  - A: Ensure you have access to the correct git history and set the `ref` input if needed.
+
 ## Versioning & Release
 
 - Versioning is managed via `pyproject.toml` and the release workflow.
 - Releases are created via the release workflow, which tags the repo and Docker image with the semantic version.
-- The Docker image is published to GHCR as `ghcr.io/hafslundecoVannkraft/stratus-gh-actions/build-scope-analyzer:<version>`.
+- The Docker image is published to GHCR as `ghcr.io/stratus-test/stratus-gh-actions/build-scope-analyzer:<version>`.
 - The next version is previewed in PRs by the `pre-merge-version.yml` workflow and finalized on merge to main.
 
 ## Migration Notes
@@ -98,3 +135,8 @@ The action outputs a matrix with the following structure:
 - All legacy scripts and files (e.g., `entrypoint.sh`, `docker-compose.yml`, `version.sh`, `test.sh`) are deprecated and removed.
 - See this README for all up-to-date usage and development instructions.
 
+## Contributing
+
+- Contributions are welcome! Please open issues or pull requests in the canonical repository.
+- See the [test-actions.yml](../.github/workflows/test-actions.yml) for test scenarios.
+- For questions, open a discussion or contact the maintainers.

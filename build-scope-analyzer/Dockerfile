@@ -13,7 +13,7 @@ FROM python:3.14-rc-alpine3.21
 
 RUN apk --no-cache add git
 
-LABEL org.opencontainers.image.source="https://github.com/HafslundEcoVannkraft/stratus-gh-actions"
+LABEL org.opencontainers.image.source="https://github.com/stratus-test/stratus-gh-actions"
 LABEL org.opencontainers.image.description="Build Scope Analyzer - Analyze git changes to identify what needs to be built"
 LABEL org.opencontainers.image.licenses=MIT
 

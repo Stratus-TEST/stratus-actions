@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   create-release:
-    if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch'
+    if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch' && github.repository == 'stratus-test/stratus-gh-actions' # Only run on the base repository
     runs-on: ubuntu-latest
     outputs:
       docker_dirs: ${{ steps.find-docker.outputs.dirs }}
