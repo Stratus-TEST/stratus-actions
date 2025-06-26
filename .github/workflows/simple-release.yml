@@ -16,7 +16,7 @@ jobs:
     if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch' && github.repository == 'stratus-test/stratus-gh-actions' # Only run on the base repository
     runs-on: ubuntu-latest
     outputs:
-      new_version: ${{ steps.release.outputs.release.new_version }}
+      new_version: ${{ steps.release.outputs.new_version }}
       dirs: ${{ steps.find-docker.outputs.dirs }}
     steps:
       - uses: actions/checkout@v4

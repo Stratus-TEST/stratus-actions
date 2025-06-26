@@ -54,7 +54,7 @@ env:
 
 runs:
   using: "docker"
-  image: "docker://ghcr.io/Stratus-TEST/stratus-gh-actions/build-scope-analyzer:v3.1.8"
+  image: "docker://ghcr.io/Stratus-TEST/stratus-gh-actions/build-scope-analyzer:v3.1.9"
   args:
     - "--root-path"
     - "${{ inputs.root-path }}"
