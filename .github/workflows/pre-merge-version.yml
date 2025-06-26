@@ -12,9 +12,7 @@ jobs:
   pre-merge-version:
     name: Check Next Semantic Version
     runs-on: ubuntu-latest
-    if: |
-      github.repository == 'stratus-test/stratus-gh-actions'
-      github.event.commit.message != 'chore: bump version to v* [pre-merge]'
+    if: github.repository == 'stratus-test/stratus-gh-actions'
     steps:
       - uses: actions/checkout@v4
         with:
