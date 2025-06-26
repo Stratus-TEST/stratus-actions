@@ -19,6 +19,7 @@ jobs:
           fetch-depth: 0
 
       - name: Check if last commit was made by the app
+        if: github.event_name != 'labeled'
         id: skip
         run: |
           # Get the latest commit SHA on the PR branch
