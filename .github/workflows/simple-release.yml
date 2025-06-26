@@ -28,3 +28,10 @@ jobs:
         with:
           draft: false
           prerelease: false
+
+  docker-build:
+    needs: create-release
+    if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch' && github.repository == 'stratus-test/stratus-gh-actions' # Only run on the base repository
+    uses: stratus-test/stratus-gh-actions/github/workflows/docker-build.yml@${{ needs.create-release.outputs.release.tag_name }}
+    with:
+      ref: ${{ needs.create-release.outputs.release.tag_name }}
