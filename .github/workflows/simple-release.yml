@@ -63,19 +63,16 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern=v{{major}}
-            type=sha,format=short,prefix=sha-
             latest
 
       - name: Build and push Docker images
-        env:
-          DOCKER_METADATA_OUTPUT_TAGS: ${{ steps.meta.outputs.tags }}
-          DOCKER_METADATA_OUTPUT_LABELS: ${{ steps.meta.outputs.labels }}
         run: |
           ORG_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
           IMAGE=ghcr.io/$ORG_REPO/${{ matrix.dir }}
           docker buildx build \
             --push \
             --platform linux/amd64 \
-            $(echo "$DOCKER_METADATA_OUTPUT_TAGS" | xargs -n 1 echo --tag) \
-            $(echo "$DOCKER_METADATA_OUTPUT_LABELS" | xargs -n 1 echo --label) \
+            --tag $IMAGE:sha-$(git rev-parse --short=7 ${{ github.sha }}) \
+            $(echo "${{ steps.meta.outputs.tags }}" | xargs -n 1 echo --tag) \
+            $(echo "${{ steps.meta.outputs.labels }}" | xargs -n 1 echo --label) \
             ./${{ matrix.dir }}
