@@ -16,7 +16,7 @@ jobs:
     if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch' && github.repository == 'stratus-test/stratus-gh-actions' # Only run on the base repository
     runs-on: ubuntu-latest
     outputs:
-      docker_dirs: ${{ steps.find-docker.outputs.dirs }}
+      new_version: ${{ steps.release.outputs.release.new_version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,6 +32,6 @@ jobs:
   docker-build:
     needs: create-release
     if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch' && github.repository == 'stratus-test/stratus-gh-actions' # Only run on the base repository
-    uses: stratus-test/stratus-gh-actions/github/workflows/docker-build.yml@${{ needs.create-release.outputs.release.tag_name }}
+    uses: ./github/workflows/docker-build.yml
     with:
-      ref: ${{ needs.create-release.outputs.release.tag_name }}
+      ref: ${{ needs.create-release.outputs.new_version }}
