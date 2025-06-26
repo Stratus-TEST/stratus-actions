@@ -196,8 +196,8 @@ runs:
           console.log(`Created release: ${release.html_url}`);
           core.setOutput('release_url', release.html_url);
 
-          // Comment on PR if this is a PR event
-          if (context.eventName === 'pull_request' && context.payload.pull_request) {
+          // Only comment on PR if this is a PR event and not a dry-run
+          if (context.eventName === 'pull_request' && context.payload.pull_request && !${{ inputs.dry-run }}) {
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
