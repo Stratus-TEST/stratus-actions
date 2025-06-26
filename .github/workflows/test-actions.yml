@@ -240,3 +240,19 @@ jobs:
         run: |
           echo "Matrix (include pattern): $(cat matrix-include.json)"
           cat matrix-include.json | jq .
+
+  test-hello-world-docker:
+    name: Test Hello World Docker Action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test Hello World Docker Action
+        id: hello-docker
+        uses: ./hello-world-docker
+        with:
+          who-to-greet: "Stratus Docker"
+
+      - name: Print Docker Action Output
+        run: |
+          echo "Docker action time output: ${{ steps.hello-docker.outputs.time }}"
