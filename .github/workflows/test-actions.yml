@@ -64,11 +64,25 @@ jobs:
             const fs = require('fs');
             const tagPrefix = 'test-';
             const tag = `${tagPrefix}${process.env.NEW_VERSION}`;
-            const { data: release } = await github.rest.repos.getReleaseByTag({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              tag
-            });
+            let release;
+            for (let i = 0; i < 5; i++) {
+              try {
+                const { data } = await github.rest.repos.getReleaseByTag({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  tag
+                });
+                release = data;
+                break;
+              } catch (err) {
+                if (err.status === 404 && i < 4) {
+                  await new Promise(res => setTimeout(res, 3000)); // wait 3 seconds
+                } else {
+                  throw err;
+                }
+              }
+            }
+            if (!release) throw new Error('Release not found after retries');
             fs.writeFileSync('release-notes.md', release.body || '');
             const metadata = {
               name: release.name,
