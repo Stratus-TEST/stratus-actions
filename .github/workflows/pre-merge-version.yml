@@ -12,18 +12,39 @@ jobs:
   pre-merge-version:
     name: Check Next Semantic Version
     runs-on: ubuntu-latest
-    if: github.repository == 'stratus-test/stratus-gh-actions' # Only run on the base repository
+    if: |
+      github.repository == 'stratus-test/stratus-gh-actions'
+      github.event.commit.message != 'chore: bump version to v* [pre-merge]'
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Check if last commit was made by the app
+        id: skip
+        run: |
+          # Get the latest commit SHA on the PR branch
+          COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
+          # Get the committer login using the GitHub API
+          COMMITTER_LOGIN=$(gh api repos/${{ github.repository }}/commits/$COMMIT_SHA --jq '.committer.login')
+          echo "Committer login: $COMMITTER_LOGIN"
+          # Replace 'stratus-ga-bot[bot]' with your app's bot login
+          if [[ "$COMMITTER_LOGIN" == "stratus-ga-bot[bot]" ]]; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
       - name: Preview Next Version
+        if: steps.skip.outputs.skip != 'true'
         id: version
         uses: ./release
         with:
           dry-run: true
       - name: Comment Next Version on PR
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.skip.outputs.skip != 'true'
         uses: actions/github-script@v7
         with:
           script: |
@@ -37,6 +58,7 @@ jobs:
             });
       - name: Update all action.yml, action.yaml, and pyproject.toml files with next version
         id: update-files
+        if: steps.skip.outputs.skip != 'true'
         run: |
           VERSION=${{ steps.version.outputs.new_version }}
           VERSION_NO_V=${VERSION#v}
@@ -56,7 +78,7 @@ jobs:
             echo "changed=false" >> $GITHUB_OUTPUT
           fi
       - name: Create GitHub App JWT and Installation Access Token
-        if: steps.update-files.outputs.changed == 'true'
+        if: steps.update-files.outputs.changed == 'true' && steps.skip.outputs.skip != 'true'
         id: jwt
         env:
           STRATUS_GA_BOT_PEM: ${{ secrets.STRATUS_GA_BOT_PEM }}
@@ -94,7 +116,7 @@ jobs:
 
           rm private-key.pem
       - name: Commit and push version bump via API
-        if: steps.update-files.outputs.changed == 'true'
+        if: steps.update-files.outputs.changed == 'true' && steps.skip.outputs.skip != 'true'
         uses: actions/github-script@v7
         with:
           github-token: ${{ steps.jwt.outputs.strauts_ga_bot_installation_token }}
@@ -167,13 +189,17 @@ jobs:
                 ]
               });
 
-              // Create new commit
+              // Create new commit with explicit committer
               const newCommit = await github.rest.git.createCommit({
                 owner,
                 repo,
                 message: `chore: bump version to ${version} [pre-merge]`,
                 tree: newTree.data.sha,
-                parents: [currentCommitSha]
+                parents: [currentCommitSha],
+                committer: {
+                  name: 'stratus-ga-bot[bot]',
+                  email: 'stratus-ga-bot[bot]@users.noreply.github.com'
+                }
               });
 
               // Update branch reference
