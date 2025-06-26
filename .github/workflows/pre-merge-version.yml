@@ -47,6 +47,8 @@ jobs:
           find . -type f -name pyproject.toml | while read f; do
             sed -i "s/^version = \".*\"/version = \"${VERSION_NO_V}\"/" "$f"
           done
+          echo "Show updated files:"
+          git diff --name-only
           if git diff --exit-code > /dev/null; then
             echo "changed=false" >> $GITHUB_OUTPUT
           else
