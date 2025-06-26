@@ -1,6 +1,8 @@
 # Stratus GitHub Actions
 
-> **⚠️ NOTE: This repository is the canonical source for Stratus GitHub Actions. All maintenance and development are performed here.**
+> **⚠️ NOTE: The canonical and maintained repository is [`stratus-test/stratus-actions`](https://github.com/stratus-test/stratus-actions). All maintenance and development are performed in the `stratus-test` organization. This repository may be mirrored or forked in other organizations (e.g., HafslundEcoVannkraft), but all issues, pull requests, and releases should be managed in `stratus-test`.**
+>
+> **This arrangement is temporary due to current policy constraints that prevent publishing public packages in the HafslundEcoVannkraft organization. Once these policy issues are resolved, the canonical repository location may change.**
 
 Welcome to `stratus-actions`! This repository hosts a collection of reusable composite GitHub Actions to streamline workflows across repositories. The repository is public, you can easily share actions with any repository, ensuring consistency and reducing duplicated code.
 
