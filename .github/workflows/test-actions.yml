@@ -62,8 +62,12 @@ jobs:
         with:
           script: |
             const fs = require('fs');
-            const tagPrefix = 'test-';
-            const tag = `${tagPrefix}${process.env.NEW_VERSION}`;
+            // Use the release_url output from the previous step
+            const releaseUrl = process.env.RELEASE_URL;
+            // Extract the release ID from the URL (last segment)
+            const match = releaseUrl && releaseUrl.match(/\/releases\/tag\/([^/]+)/);
+            if (!match) throw new Error('Could not extract release tag from release_url');
+            const tag = decodeURIComponent(match[1]);
             let release;
             for (let i = 0; i < 5; i++) {
               try {
@@ -94,7 +98,7 @@ jobs:
             fs.writeFileSync('release-metadata.json', JSON.stringify(metadata, null, 2));
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NEW_VERSION: ${{ steps.release.outputs.new_version }}
+          RELEASE_URL: ${{ steps.release.outputs.release_url }}
 
       - name: Post Release Preview to PR
         if: github.event_name == 'pull_request' && steps.release.outputs.release_url != ''
