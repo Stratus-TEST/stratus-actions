@@ -76,12 +76,24 @@ jobs:
     prerelease: true # Mark as pre-release
 ```
 
+### With Tag Prefix (for test tags)
+
+```yaml
+- name: Create Test Release
+  uses: HafslundEcoVannkraft/stratus-actions/release@v3
+  with:
+    tag-prefix: test-
+    draft: true
+    prerelease: true
+```
+
 ## Inputs
 
-| Input        | Description             | Required | Default |
-| ------------ | ----------------------- | -------- | ------- |
-| `draft`      | Create release as draft | No       | `false` |
-| `prerelease` | Mark as pre-release     | No       | `false` |
+| Input        | Description                                                | Required | Default |
+| ------------ | ---------------------------------------------------------- | -------- | ------- |
+| `draft`      | Create release as draft                                    | No       | `false` |
+| `prerelease` | Mark as pre-release                                        | No       | `false` |
+| `tag-prefix` | Prefix for all tags (e.g., `test-`). Useful for test runs. | No       | `""`    |
 
 ## Outputs
 
@@ -214,9 +226,9 @@ The v2 release removes all AI-powered features and external dependencies:
 
 This action manages three levels of Git tags for your releases, **always using the GitHub API (never git) so all tags are Verified**:
 
-1. **Specific version tags** (e.g., `v1.2.3`): Created for each release based on version bumping rules.
-2. **Major version tags** (e.g., `v1`): Automatically updated to point to the latest release within that major version.
-3. **Latest tag** (`latest`): Always points to the most recent release regardless of version.
+1. **Specific version tags** (e.g., `v1.2.3` or `test-v1.2.3`): Created for each release based on version bumping rules and the prefix.
+2. **Major version tags** (e.g., `v1` or `test-v1`): Automatically updated to point to the latest release within that major version and prefix.
+3. **Latest tag** (`latest` or `test-latest`): Always points to the most recent release for the given prefix.
 
 ### Tag Usage Benefits
 
@@ -234,6 +246,8 @@ These tags are force-updated with each release to ensure they always point to th
   - A: Yes, all tags and releases are created and updated via the GitHub API (never git), so they are always signed by GitHub and show as "Verified" in the commit history.
 - **Q: Can I use this action in a fork or mirror repo?**
   - A: Yes, but ensure you have write permissions and the correct token setup for your use case.
+- **Q: How do I create test tags that are easy to clean up?**
+  - A: Use the `tag-prefix` input (e.g., `tag-prefix: test-`) to create all tags with a `test-` prefix. This makes it easy to identify and delete test tags after CI runs.
 
 ## License
 

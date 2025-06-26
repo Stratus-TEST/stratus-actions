@@ -53,6 +53,7 @@ jobs:
         with:
           draft: true
           prerelease: true
+          tag-prefix: test-
 
       - name: Capture Release Details
         id: release-details
@@ -126,14 +127,20 @@ jobs:
             cat release-notes.md
           fi
 
-      - name: Delete Test Release
+      - name: Delete Test Release and Test Tags
         if: always()
         run: |
-          # Delete the release if it was created
+          # Delete the test release if it was created
           if [[ -n "${{ steps.release.outputs.new_version }}" ]]; then
             echo "🗑️ Cleaning up test release..."
             gh release delete ${{ steps.release.outputs.new_version }} --yes || true
           fi
+
+          # Delete all test tags (test-v*, test-latest, etc)
+          for tag in $(git tag -l 'test-*'); do
+            echo "Deleting test tag: $tag"
+            git push --delete origin "$tag" || true
+          done
 
           # Restore the original action
           mv release/action.yml.bak release/action.yml || true

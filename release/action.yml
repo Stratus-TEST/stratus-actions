@@ -15,6 +15,10 @@ inputs:
     description: "If true, only calculate and output the next version, do not tag or release"
     required: false
     default: "false"
+  tag-prefix:
+    description: "Optional prefix for all tags (e.g., 'test-'). Useful for test runs."
+    required: false
+    default: ""
 
 outputs:
   new_version:
@@ -146,10 +150,11 @@ runs:
         echo "New version: $new_version (${bump_type} bump)"
 
         # Output values
-        echo "new_version=$new_version" >> "$GITHUB_OUTPUT"
+        echo "new_version=${{ inputs.tag-prefix }}$new_version" >> "$GITHUB_OUTPUT"
         echo "previous_version=$latest_tag" >> "$GITHUB_OUTPUT"
         echo "bump_type=$bump_type" >> "$GITHUB_OUTPUT"
         echo "major=$major" >> "$GITHUB_OUTPUT"
+        echo "tag_prefix=${{ inputs.tag-prefix }}" >> "$GITHUB_OUTPUT"
 
     - name: Create Tags (API)
       if: inputs.dry-run != 'true'
@@ -190,17 +195,17 @@ runs:
           const sha = context.sha;
           const newVersion = '${{ steps.version.outputs.new_version }}';
           const major = '${{ steps.version.outputs.major }}';
-
+          const tagPrefix = '${{ inputs.tag-prefix }}';
           // Create/update version tag (e.g., v1.2.3)
-          await createOrUpdateTag(newVersion, sha);
+          await createOrUpdateTag(`${tagPrefix}${newVersion}`, sha);
 
           // Create/update major tag (e.g., v1)
           if (parseInt(major) > 0) {
-            await createOrUpdateTag(`v${major}`, sha);
+            await createOrUpdateTag(`${tagPrefix}v${major}`, sha);
           }
 
           // Create/update 'latest' tag
-          await createOrUpdateTag('latest', sha);
+          await createOrUpdateTag(`${tagPrefix}latest`, sha);
 
     - name: Create Release
       if: inputs.dry-run != 'true'
@@ -208,11 +213,13 @@ runs:
       uses: actions/github-script@v7
       with:
         script: |
+          const tagPrefix = '${{ inputs.tag-prefix }}';
+          const releaseTag = `${tagPrefix}${{ steps.version.outputs.new_version }}`;
           const { data: release } = await github.rest.repos.createRelease({
             owner: context.repo.owner,
             repo: context.repo.repo,
-            tag_name: '${{ steps.version.outputs.new_version }}',
-            name: '${{ steps.version.outputs.new_version }}',
+            tag_name: releaseTag,
+            name: releaseTag,
             draft: ${{ inputs.draft }},
             prerelease: ${{ inputs.prerelease }},
             target_commitish: context.sha,
@@ -230,6 +237,6 @@ runs:
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.payload.pull_request.number,
-              body: `🚀 Released version ${{ steps.version.outputs.new_version }}!\n\nView the release: ${release.html_url}`
+              body: `🚀 Released version ${releaseTag}!\n\nView the release: ${release.html_url}`
             });
           }
