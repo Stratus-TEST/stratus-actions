@@ -222,7 +222,6 @@ runs:
           console.log(`Created release: ${release.html_url}`);
           core.setOutput('release_url', release.html_url);
 
-          const core = require('@actions/core');
           const isDryRun = core.getInput('dry-run') === 'true';
 
           // Only comment on PR if this is a PR event and not a dry-run
