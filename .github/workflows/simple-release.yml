@@ -1,8 +1,5 @@
 name: Simple Release
 
-# This workflow uses the simplified release action from this repository
-# The action handles version bumping based on PR labels and creates releases with GitHub's native notes
-
 on:
   pull_request:
     types: [closed]
@@ -23,15 +20,10 @@ jobs:
 
       - name: Create Release
         id: release
-        uses: ./release # Uses the release action from this repository
+        uses: ./release
         with:
           draft: false
           prerelease: false
-
-      - name: Trim lower case github.repository
-        id: trim-repo
-        run: |
-          echo "ORG_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
@@ -52,21 +44,18 @@ jobs:
             type=sha,format=short
             latest
 
-      - name: Pull image by SHA tag
+      - name: Build and push Docker images
+        env:
+          DOCKER_METADATA_OUTPUT_TAGS: ${{ steps.meta.outputs.tags }}
+          DOCKER_METADATA_OUTPUT_LABELS: ${{ steps.meta.outputs.labels }}
         run: |
-          SHORT_SHA=$(git rev-parse --short=7 ${{ github.sha }})
-          docker pull ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA
-
-      - name: Tag and push release images
-        run: |
-          SEMVER=${{ steps.release.outputs.new_version }}
-          SHORT_SHA=$(git rev-parse --short=7 ${{ github.sha }})
-          MAJOR=$(echo "$SEMVER" | cut -d. -f1 | sed 's/^v//')
-
-          docker tag ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA ghcr.io/$ORG_REPO/build-scope-analyzer:latest
-          docker tag ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA ghcr.io/$ORG_REPO/build-scope-analyzer:$SEMVER
-          docker tag ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA ghcr.io/$ORG_REPO/build-scope-analyzer:v$MAJOR
-
-          docker push ghcr.io/$ORG_REPO/build-scope-analyzer:latest
-          docker push ghcr.io/$ORG_REPO/build-scope-analyzer:$SEMVER
-          docker push ghcr.io/$ORG_REPO/build-scope-analyzer:v$MAJOR
+          ORG_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
+          IMAGE=ghcr.io/$ORG_REPO/build-scope-analyzer
+          # Build with all tags and labels
+          docker buildx build \
+            --push \
+            --platform linux/amd64 \
+            --tag $IMAGE:sha-$(git rev-parse --short=7 ${{ github.sha }}) \
+            $(echo "$DOCKER_METADATA_OUTPUT_TAGS" | xargs -n 1 echo --tag) \
+            $(echo "$DOCKER_METADATA_OUTPUT_LABELS" | xargs -n 1 echo --label) \
+            .
