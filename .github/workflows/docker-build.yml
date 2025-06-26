@@ -1,0 +1,70 @@
+name: Docker Build on Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  setup-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      docker_dirs: ${{ steps.find-docker.outputs.dirs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find containerized actions
+        id: find-docker
+        run: |
+          find . -maxdepth 2 -mindepth 2 -name Dockerfile -exec dirname {} \; | sed 's|^./||' > docker_dirs.txt
+          echo "dirs=$(jq -c -R -s 'split("\n") | map(select(length > 0))' docker_dirs.txt)" >> $GITHUB_OUTPUT
+
+  build-and-push-images:
+    needs: setup-matrix
+    if: github.repository == 'stratus-test/stratus-gh-actions' # Only run
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dir: ${{ fromJson(needs.setup-matrix.outputs.docker_dirs) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/${{ matrix.dir }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern=v{{major}}
+            latest
+
+      - name: Build and push Docker images
+        env:
+          DOCKER_METADATA_OUTPUT_TAGS: ${{ steps.meta.outputs.tags }}
+          DOCKER_METADATA_OUTPUT_LABELS: ${{ steps.meta.outputs.labels }}
+        run: |
+          ORG_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
+          IMAGE=ghcr.io/$ORG_REPO/${{ matrix.dir }}
+          # Build and push with all tags from metadata-action
+          docker buildx build \
+            --push \
+            --platform linux/amd64 \
+            --tag $IMAGE:sha-$(git rev-parse --short=7 ${{ github.sha }}) \
+            $(echo "$DOCKER_METADATA_OUTPUT_TAGS" | xargs -n 1 echo --tag) \
+            $(echo "$DOCKER_METADATA_OUTPUT_LABELS" | xargs -n 1 echo --label) \
+            ./${{ matrix.dir }}
