@@ -1,0 +1,4 @@
+# This file is required for Dependabot support.
+# Keep this in sync with pyproject.toml dependencies manually.
+# See https://github.com/dependabot/dependabot-core/issues/3608 for details.
+pyyaml>=6.0.1

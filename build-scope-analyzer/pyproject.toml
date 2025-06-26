@@ -1,0 +1,22 @@
+# NOTE: requirements.txt exists only for Dependabot support. Keep dependencies in sync manually.
+# See https://github.com/dependabot/dependabot-core/issues/3608 for details.
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "build-scope-analyzer"
+version = "3.1.10"
+description = "Analyze git changes to identify what needs to be built and generate strategy matrix"
+authors = [
+    {name = "Stratus Team"}
+]
+requires-python = ">=3.12"
+dependencies = [
+    "pyyaml>=6.0.1",
+]
+readme = "README.md"
+license = {text = "MIT"}
+
+[tool.setuptools]
+packages = []  # No packages, we're using the script directly

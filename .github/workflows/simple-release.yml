@@ -1,0 +1,87 @@
+name: Simple Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  packages: write
+
+jobs:
+  create-release:
+    if: github.event.pull_request.merged == true || github.event_name == 'workflow_dispatch' && github.repository == 'stratus-test/stratus-actions' # Only run on the base repository
+    runs-on: ubuntu-latest
+    outputs:
+      new_version: ${{ steps.release.outputs.new_version }}
+      dirs: ${{ steps.find-docker.outputs.dirs }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create Release
+        id: release
+        uses: ./release
+        with:
+          draft: false
+          prerelease: false
+
+      - name: Find containerized actions
+        id: find-docker
+        run: |
+          find . -maxdepth 2 -mindepth 2 -name Dockerfile -exec dirname {} \; | sed 's|^./||' > docker_dirs.txt
+          echo "dirs=$(jq -c -R -s 'split("\n") | map(select(length > 0))' docker_dirs.txt)" >> $GITHUB_OUTPUT
+
+  build-and-push-images:
+    needs: create-release
+    if: github.repository == 'stratus-test/stratus-actions' # Only run
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dir: ${{ fromJson(needs.create-release.outputs.dirs) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch all tags
+        run: git fetch --tags
+
+      - name: Checkout the new tag
+        run: git checkout ${{ needs.create-release.outputs.new_version }}
+
+      - name: Set GITHUB_REF to tag
+        # This is necessary for the Docker metadata action to work correctly and belive we are in a tag context
+        run: echo "GITHUB_REF=refs/tags/${{ needs.create-release.outputs.new_version }}" >> $GITHUB_ENV
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/${{ matrix.dir }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern=v{{major}}
+            latest
+
+      - name: Build and push Docker images
+        run: |
+          ORG_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
+          IMAGE=ghcr.io/$ORG_REPO/${{ matrix.dir }}
+          docker buildx build \
+            --push \
+            --platform linux/amd64 \
+            --tag $IMAGE:sha-$(git rev-parse --short=7 ${{ github.sha }}) \
+            $(echo "${{ steps.meta.outputs.tags }}" | xargs -n 1 echo --tag) \
+            $(echo "${{ steps.meta.outputs.labels }}" | xargs -n 1 echo --label) \
+            ./${{ matrix.dir }}
