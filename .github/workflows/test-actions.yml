@@ -58,17 +58,29 @@ jobs:
       - name: Capture Release Details
         id: release-details
         if: steps.release.outputs.release_url != ''
-        run: |
-          # Get the release details using GitHub CLI
-          release_body=$(gh release view ${{ steps.release.outputs.new_version }} --json body -q .body)
-
-          # Save to file for multi-line handling
-          echo "$release_body" > release-notes.md
-
-          # Also get release metadata
-          gh release view ${{ steps.release.outputs.new_version }} --json name,tagName,isDraft,isPrerelease,createdAt > release-metadata.json
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const tagPrefix = 'test-';
+            const tag = `${tagPrefix}${process.env.NEW_VERSION}`;
+            const { data: release } = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag
+            });
+            fs.writeFileSync('release-notes.md', release.body || '');
+            const metadata = {
+              name: release.name,
+              tagName: release.tag_name,
+              isDraft: release.draft,
+              isPrerelease: release.prerelease,
+              createdAt: release.created_at
+            };
+            fs.writeFileSync('release-metadata.json', JSON.stringify(metadata, null, 2));
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NEW_VERSION: ${{ steps.release.outputs.new_version }}
 
       - name: Post Release Preview to PR
         if: github.event_name == 'pull_request' && steps.release.outputs.release_url != ''

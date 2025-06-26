@@ -1,0 +1,19 @@
+name: "Hello World (Docker)"
+description: "A minimal Docker action that echoes a greeting and demonstrates inputs/outputs."
+author: "Stratus Team"
+
+inputs:
+  who-to-greet:
+    description: "Who to greet"
+    required: false
+    default: "World"
+
+outputs:
+  time:
+    description: "The time the greeting was generated"
+
+runs:
+  using: "docker"
+  image: "Dockerfile"
+  args:
+    - ${{ inputs.who-to-greet }}

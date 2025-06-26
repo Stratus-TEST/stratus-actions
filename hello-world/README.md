@@ -76,9 +76,35 @@ Use the v1 tag for the first production release after a full history reset:
 - uses: HafslundEcoVannkraft/stratus-actions/hello-world@v1
 ```
 
-## Contributing
+---
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+# Hello World (Composite) Action
+
+A minimal composite action that echoes a greeting and demonstrates inputs/outputs.
+
+## Usage
+
+```yaml
+- name: Hello World (Composite)
+  uses: ./hello-world
+  with:
+    who-to-greet: "Stratus"
+```
+
+## Inputs
+
+- `who-to-greet`: Who to greet (default: `World`)
+
+## Outputs
+
+- `time`: The time the greeting was generated
+
+---
+
+## When to use Composite Actions
+
+- For simple logic, shell steps, or combining other actions. Fast, no build required.
+- Use Docker actions for custom environments or dependencies.
 
 ## License
 

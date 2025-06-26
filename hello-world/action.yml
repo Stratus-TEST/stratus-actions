@@ -1,8 +1,24 @@
-name: "Hello world composite action"
-description: "A hello world composite action"
+name: "Hello World (Composite)"
+description: "A minimal composite action that echoes a greeting and demonstrates inputs/outputs."
+author: "Stratus Team"
+
+inputs:
+  who-to-greet:
+    description: "Who to greet"
+    required: false
+    default: "World"
+
+outputs:
+  time:
+    description: "The time the greeting was generated"
+    value: ${{ steps.greet.outputs.time }}
+
 runs:
   using: "composite"
   steps:
-    - name: Execute entrypoint script
+    - name: Greet user
+      id: greet
       shell: bash
-      run: ${{ github.action_path }}/entrypoint.sh
+      run: |
+        echo "Hello, ${{ inputs.who-to-greet }}!"
+        echo "time=$(date)" >> $GITHUB_OUTPUT
