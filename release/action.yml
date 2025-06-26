@@ -151,30 +151,56 @@ runs:
         echo "bump_type=$bump_type" >> "$GITHUB_OUTPUT"
         echo "major=$major" >> "$GITHUB_OUTPUT"
 
-    - name: Create Tags
+    - name: Create Tags (API)
       if: inputs.dry-run != 'true'
-      shell: bash
-      run: |
-        git config --global user.name "github-actions[bot]"
-        git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      id: tags
+      uses: actions/github-script@v7
+      with:
+        script: |
+          // Helper to create or update a tag ref
+          async function createOrUpdateTag(tag, sha) {
+            const ref = `refs/tags/${tag}`;
+            try {
+              // Try to create the tag ref
+              await github.rest.git.createRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref,
+                sha
+              });
+              console.log(`Created tag: ${tag}`);
+            } catch (err) {
+              if (err.status === 422 && err.message.includes('Reference already exists')) {
+                // Tag exists, update it
+                await github.rest.git.updateRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: `tags/${tag}`,
+                  sha,
+                  force: true
+                });
+                console.log(`Updated tag: ${tag}`);
+              } else {
+                throw err;
+              }
+            }
+          }
 
-        # Create a new tag for the new version
-        git tag -a "${{ steps.version.outputs.new_version }}" -m "Release ${{ steps.version.outputs.new_version }}"
-        git push origin "${{ steps.version.outputs.new_version }}"
+          // Get the commit SHA to tag
+          const sha = context.sha;
+          const newVersion = '${{ steps.version.outputs.new_version }}';
+          const major = '${{ steps.version.outputs.major }}';
 
-        # Force update the major version tag to point to the current commit
-        if [[ "${{ steps.version.outputs.major }}" -gt 0 ]]; then
-          # Extract the major version from the new version (more reliably)
-          new_major=$(echo "${{ steps.version.outputs.new_version }}" | sed 's/^v//' | cut -d. -f1)
+          // Create/update version tag (e.g., v1.2.3)
+          await createOrUpdateTag(newVersion, sha);
 
-          # Create or update the major version tag
-          git tag -f "v${new_major}"
-          git push origin "v${new_major}" --force
-        fi
+          // Create/update major tag (e.g., v1)
+          if (parseInt(major) > 0) {
+            await createOrUpdateTag(`v${major}`, sha);
+          }
 
-        # Create or update the 'latest' tag to always point to the most recent release
-        git tag -f "latest"
-        git push origin "latest" --force
+          // Create/update 'latest' tag
+          await createOrUpdateTag('latest', sha);
 
     - name: Create Release
       if: inputs.dry-run != 'true'
