@@ -4,7 +4,7 @@
 >
 > **This arrangement is temporary due to current policy constraints that prevent publishing public packages in the HafslundEcoVannkraft organization. Once these policy issues are resolved, the canonical repository location may change.**
 
-Welcome to `stratus-actions`! This repository hosts a collection of reusable composite GitHub Actions to streamline workflows across repositories. The repository is public, you can easily share actions with any repository, ensuring consistency and reducing duplicated code.
+Welcome to `stratus-actions`! This repository hosts a collection of reusable composite and Docker-based GitHub Actions to streamline workflows across repositories. The repository is public, you can easily share actions with any repository, ensuring consistency and reducing duplicated code.
 
 ## Table of Contents
 
@@ -17,6 +17,8 @@ Welcome to `stratus-actions`! This repository hosts a collection of reusable com
   - [Available Actions](#available-actions)
     - [Hello World Action](#hello-world-action)
       - [Example Using Hello World Action](#example-using-hello-world-action)
+    - [Hello World Docker Action](#hello-world-docker-action)
+      - [Example Using Hello World Docker Action](#example-using-hello-world-docker-action)
     - [Simple Version Bump and Release Action](#simple-version-bump-and-release-action)
     - [Build Scope Analyzer Action](#build-scope-analyzer-action)
   - [Contributing](#contributing)
@@ -29,15 +31,16 @@ Welcome to `stratus-actions`! This repository hosts a collection of reusable com
 
 ## About
 
-The `stratus-actions` repository is designed to simplify and standardize workflows across projects by providing a central source of reusable composite GitHub Actions. Each action is defined within its own folder at the repository root, making it easy to reference them directly from any repository.
+The `stratus-actions` repository is designed to simplify and standardize workflows across projects by providing a central source of reusable composite and Docker-based GitHub Actions. Each action is defined within its own folder at the repository root, making it easy to reference them directly from any repository.
 
 ### Key Benefits
 
 - **Reusable**: Use the same action in multiple workflows and repositories, improving consistency.
 - **Public Access**: As a public repository, actions here can be used in both public and private/internal repositories.
-- **Containerized Actions**: Some actions (like build-scope-analyzer) are distributed as Docker containers for maximum compatibility and reproducibility.
+- **Containerized & Composite Actions**: Includes both composite and Docker-based actions for maximum compatibility and reproducibility.
 - **Version Control**: Keep track of changes to actions across repositories, ensuring stability with tagged versions.
 - **Simple and Reliable**: Actions use GitHub's native features without external dependencies.
+- **Robust Test Workflows**: All actions are covered by automated test workflows for reliability.
 
 ## Repository Structure
 
@@ -57,6 +60,11 @@ stratus-actions/
 │   ├── README.md
 │   ├── action.yml
 │   └── entrypoint.sh
+├── hello-world-docker/
+│   ├── README.md
+│   ├── action.yml
+│   ├── Dockerfile
+│   └── entrypoint.sh
 ├── release/
 │   ├── README.md
 │   └── action.yml
@@ -65,20 +73,22 @@ stratus-actions/
 └── README.md
 ```
 
-Each action has its own documentation explaining its specific usage and configuration options.
+Each action has its own documentation explaining its specific usage and configuration options. See the README in each action folder for details.
 
 ## Usage
 
 To use an action from this repository, reference it in your workflow file with the following syntax:
 
 ```yaml
-uses: HafslundEcoVannkraft/stratus-actions/[action-name]@v1.0.0
+uses: stratus-test/stratus-actions/[action-name]@v1.0.0
 ```
 
 Replace:
 
-- `[action-name]` with the specific action folder name (e.g., `release`, `hello-world`, `build-scope-analyzer`)
+- `[action-name]` with the specific action folder name (e.g., `release`, `hello-world`, `hello-world-docker`, `build-scope-analyzer`)
 - `@v1.0.0` with the desired version tag
+
+> **Note:** This repository is kept in sync with forks (e.g., HafslundEcoVannkraft) via automation, but all issues and PRs should be opened in the canonical `stratus-test` repository.
 
 ## Available Actions
 
@@ -99,7 +109,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Say Hello
-        uses: HafslundEcoVannkraft/stratus-actions/hello-world@v1.0.0
+        uses: stratus-test/stratus-actions/hello-world@v1.0.0
+```
+
+### Hello World Docker Action
+
+A simple Docker-based action that demonstrates how to use container actions and output handling. See the [hello-world-docker action documentation](hello-world-docker/README.md) for details.
+
+#### Example Using Hello World Docker Action
+
+```yaml
+name: Hello World Docker Example
+
+on:
+  workflow_dispatch:
+
+jobs:
+  hello-docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Say Hello (Docker)
+        uses: stratus-test/stratus-actions/hello-world-docker@v1.0.0
+        with:
+          who-to-greet: "Stratus Docker"
+      - name: Print Docker Action Output
+        run: |
+          echo "Docker action time output: ${{ steps.hello-docker.outputs.time }}"
 ```
 
 ### Simple Version Bump and Release Action
@@ -113,6 +148,8 @@ A lightweight action that automates version management and release creation usin
 - 🏷️ Semantic versioning support
 - 🎯 Zero configuration required
 - 📋 Simple and reliable
+- 🏷️ All tags and releases are created via the GitHub API for "Verified" status
+- 🧪 Supports test tags via the `tag-prefix` input for safe testing
 
 For detailed information about this action, see the [release action documentation](release/README.md).
 
