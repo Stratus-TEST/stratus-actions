@@ -150,7 +150,7 @@ runs:
         echo "New version: $new_version (${bump_type} bump)"
 
         # Output values
-        echo "new_version=${{ inputs.tag-prefix }}$new_version" >> "$GITHUB_OUTPUT"
+        echo "new_version=$new_version" >> "$GITHUB_OUTPUT"
         echo "previous_version=$latest_tag" >> "$GITHUB_OUTPUT"
         echo "bump_type=$bump_type" >> "$GITHUB_OUTPUT"
         echo "major=$major" >> "$GITHUB_OUTPUT"
