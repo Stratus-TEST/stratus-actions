@@ -602,6 +602,14 @@ def check_git_repository():
             stderr=subprocess.DEVNULL,
         )
         logging.info("Git repository detected.")
+        # Ensure /github/workspace is a safe directory for git (fixes dubious ownership error in CI)
+        try:
+            subprocess.run(
+                ["git", "config", "--local", "--add", "safe.directory", "/github/workspace"],
+                check=True
+            )
+        except Exception as e:
+            logging.warning(f"Could not set git safe.directory: {e}")
     except Exception:
         logging.warning("Not inside a git repository.")
         logging.warning("This container is designed to run in the context of a git repository.")
@@ -615,15 +623,6 @@ def main():
         format="%(levelname)s: %(message)s",
         stream=sys.stderr
     )
-
-    # Ensure /github/workspace is a safe directory for git (fixes dubious ownership error in CI)
-    try:
-        subprocess.run(
-            ["git", "config", "--global", "--add", "safe.directory", "/github/workspace"],
-            check=True
-        )
-    except Exception as e:
-        logging.warning(f"Could not set git safe.directory: {e}")
 
     parser = argparse.ArgumentParser(description='Analyze git changes for build scope')
     parser.add_argument('--root-path', default=os.environ.get('GITHUB_WORKSPACE', '.'),
