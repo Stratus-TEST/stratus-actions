@@ -24,12 +24,12 @@ ENV PYTHONPATH="/venv/lib/python3.14/site-packages"
 WORKDIR /github/workspace
 COPY main.py /app/
 
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup && \
-    chown -R appuser:appgroup /app
-USER appuser
+# RUN addgroup -S appgroup && adduser -S appuser -G appgroup && \
+#     chown -R appuser:appgroup /app
+# USER appuser
 
 RUN git config --global --add safe.directory /github/workspace
 
-ENTRYPOINT ["python", "/app/main.py"]
+ENTRYPOINT ["python3", "-u", "/app/main.py"]
 
 CMD ["--help"]

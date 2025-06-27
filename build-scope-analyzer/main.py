@@ -616,15 +616,6 @@ def main():
         stream=sys.stderr
     )
 
-    # Ensure /github/workspace is a safe directory for git (fixes dubious ownership error in CI)
-    try:
-        subprocess.run(
-            ["git", "config", "--global", "--add", "safe.directory", "/github/workspace"],
-            check=True
-        )
-    except Exception as e:
-        logging.warning(f"Could not set git safe.directory: {e}")
-
     parser = argparse.ArgumentParser(description='Analyze git changes for build scope')
     parser.add_argument('--root-path', default=os.environ.get('GITHUB_WORKSPACE', '.'),
                         help='Root path to search for changes')
@@ -640,6 +631,37 @@ def main():
 
     # Change working directory to root_path for correct git context
     os.chdir(args.root_path)
+
+    # Debug: print current user and working directory
+    import getpass
+    logging.info(f"Current user: {getpass.getuser()}")
+    logging.info(f"Current working directory: {os.getcwd()}")
+
+    # Ensure /github/workspace is a safe directory for git (fixes dubious ownership error in CI)
+    try:
+        result = subprocess.run(
+            ["git", "config", "--global", "--add", "safe.directory", "/github/workspace"],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        logging.info(f"git config --global --add safe.directory /github/workspace: {result.stdout.strip()}")
+    except Exception as e:
+        logging.warning(f"Could not set git safe.directory: {e}")
+        if hasattr(e, 'stderr'):
+            logging.warning(f"git config error output: {e.stderr}")
+
+    # Show current safe.directory config for debugging
+    try:
+        result = subprocess.run(
+            ["git", "config", "--global", "--get-all", "safe.directory"],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        logging.info(f"Current git safe.directory entries: {result.stdout.strip()}")
+    except Exception as e:
+        logging.warning(f"Could not get git safe.directory entries: {e}")
 
     # Check if we're in a git repository (now in correct directory)
     check_git_repository()
