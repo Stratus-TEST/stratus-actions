@@ -357,54 +357,59 @@ class BuildScopeAnalyzer:
             'commit_sha': commit_sha
         }
 
+    def _build_app_item(self, app_info):
+        item = {
+            'path': app_info['path'],
+            'app_name': app_info['app_name'],
+            'dockerfiles': app_info['dockerfiles']
+        }
+        if app_info.get('app_config'):
+            item['app_config'] = app_info['app_config']
+        return item
+
     def analyze_all_builds(self) -> List[Dict]:
         """Analyze all apps in the include pattern, regardless of changes"""
         all_apps = []
 
         # If we have an include pattern like "apps/*", we need to find matching directories
         if self.include_pattern:
-            # Convert glob pattern to find directories
-            # For pattern like "apps/*", we want to find all direct subdirectories of "apps"
-            pattern_parts = self.include_pattern.split('/')
-
-            if '*' in pattern_parts[-1]:
-                # Pattern ends with *, so we want directories at this level
-                parent_path = '/'.join(pattern_parts[:-1]) if len(pattern_parts) > 1 else '.'
-                parent_dir = self.root_path / parent_path
-
-                if parent_dir.exists() and parent_dir.is_dir():
-                    # Find all subdirectories
-                    for path in parent_dir.iterdir():
-                        if path.is_dir():
-                            relative_path = path.relative_to(self.root_path)
-                            if self.should_include_path(relative_path):
-                                app_info = self.analyze_folder(relative_path, set())
-                                if app_info:
-                                    # Use the same structure as the main matrix
-                                    item = {
-                                        'path': app_info['path'],
-                                        'app_name': app_info['app_name'],
-                                        'dockerfiles': app_info['dockerfiles']
-                                    }
-                                    if app_info['app_config']:
-                                        item['app_config'] = app_info['app_config']
-                                    all_apps.append(item)
+            # Normalize root patterns
+            if self.include_pattern in ['/', '.', './']:
+                # Treat as root
+                relative_path = Path('.')
+                app_info = self.analyze_folder(relative_path, set())
+                if app_info:
+                    all_apps.append(self._build_app_item(app_info))
             else:
-                # Pattern is a specific directory
-                specific_dir = self.root_path / self.include_pattern
-                if specific_dir.exists() and specific_dir.is_dir():
-                    relative_path = specific_dir.relative_to(self.root_path)
-                    app_info = self.analyze_folder(relative_path, set())
-                    if app_info:
-                        # Use the same structure as the main matrix
-                        item = {
-                            'path': app_info['path'],
-                            'app_name': app_info['app_name'],
-                            'dockerfiles': app_info['dockerfiles']
-                        }
-                        if app_info['app_config']:
-                            item['app_config'] = app_info['app_config']
-                        all_apps.append(item)
+                pattern_parts = self.include_pattern.split('/')
+
+                if '*' in pattern_parts[-1]:
+                    # Pattern ends with *, so we want directories at this level
+                    parent_path = '/'.join(pattern_parts[:-1]) if len(pattern_parts) > 1 else '.'
+                    parent_dir = self.root_path / parent_path
+
+                    if parent_dir.exists() and parent_dir.is_dir():
+                        # Find all subdirectories
+                        for path in parent_dir.iterdir():
+                            if path.is_dir():
+                                relative_path = path.relative_to(self.root_path)
+                                if self.should_include_path(relative_path):
+                                    app_info = self.analyze_folder(relative_path, set())
+                                    if app_info:
+                                        all_apps.append(self._build_app_item(app_info))
+                else:
+                    # Pattern is a specific directory
+                    specific_dir = self.root_path / self.include_pattern
+                    if specific_dir.exists() and specific_dir.is_dir():
+                        try:
+                            relative_path = specific_dir.relative_to(self.root_path)
+                        except ValueError:
+                            logging.warning(f"Invalid or out-of-scope include pattern: {specific_dir}")
+                            pass  # Skip this pattern
+                        else:
+                            app_info = self.analyze_folder(relative_path, set())
+                            if app_info:
+                                all_apps.append(self._build_app_item(app_info))
         else:
             # No include pattern, check all directories at root level
             for path in self.root_path.iterdir():
@@ -413,15 +418,7 @@ class BuildScopeAnalyzer:
                     if self.should_include_path(relative_path):
                         app_info = self.analyze_folder(relative_path, set())
                         if app_info:
-                            # Use the same structure as the main matrix
-                            item = {
-                                'path': app_info['path'],
-                                'app_name': app_info['app_name'],
-                                'dockerfiles': app_info['dockerfiles']
-                            }
-                            if app_info['app_config']:
-                                item['app_config'] = app_info['app_config']
-                            all_apps.append(item)
+                            all_apps.append(self._build_app_item(app_info))
 
         return all_apps
 
