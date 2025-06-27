@@ -74,10 +74,15 @@ jobs:
         run: |
           ORG_REPO=$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')
           IMAGE=ghcr.io/$ORG_REPO/${{ matrix.dir }}
+          VERSION=${{ needs.create-release.outputs.new_version }}
+          MAJOR=$(echo "$VERSION" | grep -oE '^v[0-9]+')
+          SHORT_SHA=$(git rev-parse --short=7 ${{ github.sha }})
           docker buildx build \
             --push \
             --platform linux/amd64 \
-            --tag $IMAGE:sha-$(git rev-parse --short=7 ${{ github.sha }}) \
-            $(echo "${{ steps.meta.outputs.tags }}" | xargs -n 1 echo --tag) \
+            --tag $IMAGE:$VERSION \
+            --tag $IMAGE:$MAJOR \
+            --tag $IMAGE:sha-$SHORT_SHA \
+            --tag $IMAGE:latest \
             $(echo "${{ steps.meta.outputs.labels }}" | xargs -n 1 echo --label) \
             ./${{ matrix.dir }}
