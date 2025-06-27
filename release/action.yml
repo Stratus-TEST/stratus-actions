@@ -201,8 +201,16 @@ runs:
 
           // Create/update major tag (e.g., v1)
           if (parseInt(major) > 0) {
-            await createOrUpdateTag(`${tagPrefix}v${major}`, sha);
+            // Only add major tag if newVersion is a full semver (vX.Y.Z)
+            if (/^v\d+\.\d+\.\d+$/.test(newVersion)) {
+              const majorTag = `${tagPrefix}v${major}`;
+              await createOrUpdateTag(majorTag, sha);
+            }
           }
+
+          // Create/update sha-<short-7> tag
+          const shortSha = sha.substring(0, 7);
+          await createOrUpdateTag(`${tagPrefix}sha-${shortSha}`, sha);
 
           // Create/update 'latest' tag
           await createOrUpdateTag(`${tagPrefix}latest`, sha);
