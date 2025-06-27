@@ -405,10 +405,11 @@ class BuildScopeAnalyzer:
                             relative_path = specific_dir.relative_to(self.root_path)
                         except ValueError:
                             logging.warning(f"Invalid or out-of-scope include pattern: {specific_dir}")
-                            continue
-                        app_info = self.analyze_folder(relative_path, set())
-                        if app_info:
-                            all_apps.append(self._build_app_item(app_info))
+                            pass  # Skip this pattern
+                        else:
+                            app_info = self.analyze_folder(relative_path, set())
+                            if app_info:
+                                all_apps.append(self._build_app_item(app_info))
         else:
             # No include pattern, check all directories at root level
             for path in self.root_path.iterdir():
