@@ -303,6 +303,16 @@ class BuildScopeAnalyzer:
 
         return deletions
 
+    def _normalize_azure_name(self, name: str) -> str:
+        """Normalize a name to be Azure resource compatible: lowercase, alphanum and dash only."""
+        import re
+        # Lowercase, replace non-alphanumeric/dash with dash
+        name = name.lower()
+        name = re.sub(r'[^a-z0-9-]', '-', name)
+        name = re.sub(r'-+', '-', name)  # Collapse multiple dashes
+        name = name.strip('-')
+        return name
+
     def analyze_folder(self, folder: Path, changed_files: Set[Path]) -> Optional[Dict]:
         """Analyze a folder for Dockerfiles and optionally app configuration"""
         dockerfiles = self.find_dockerfiles(folder)
@@ -312,8 +322,11 @@ class BuildScopeAnalyzer:
         if not app_config and not dockerfiles:
             return None
 
-        # Use folder name as app name
-        app_name = folder.name
+        # Use folder name as app name, but for root (Path('.')), use normalized repo name
+        if folder == Path('.'):
+            app_name = self._normalize_azure_name(self.root_path.name)
+        else:
+            app_name = folder.name
 
         return {
             'path': str(folder),
@@ -547,6 +560,10 @@ class BuildScopeAnalyzer:
         folder_abs = (self.root_path / folder).resolve()
         for changed_file in changed_files:
             changed_abs = (self.root_path / changed_file).resolve()
+            # Special case: if folder is root (Path('.')), match files in root
+            if folder == Path('.'):
+                if changed_abs.parent == folder_abs:
+                    return True
             try:
                 changed_abs.relative_to(folder_abs)
                 return True
