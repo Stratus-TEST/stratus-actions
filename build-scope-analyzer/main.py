@@ -616,6 +616,15 @@ def main():
         stream=sys.stderr
     )
 
+    # Ensure /github/workspace is a safe directory for git (fixes dubious ownership error in CI)
+    try:
+        subprocess.run(
+            ["git", "config", "--global", "--add", "safe.directory", "/github/workspace"],
+            check=True
+        )
+    except Exception as e:
+        logging.warning(f"Could not set git safe.directory: {e}")
+
     parser = argparse.ArgumentParser(description='Analyze git changes for build scope')
     parser.add_argument('--root-path', default=os.environ.get('GITHUB_WORKSPACE', '.'),
                         help='Root path to search for changes')
