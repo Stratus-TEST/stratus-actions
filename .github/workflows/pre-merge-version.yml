@@ -62,9 +62,10 @@ jobs:
           VERSION=${{ steps.version.outputs.new_version }}
           VERSION_NO_V=${VERSION#v}
           MAJOR_TAG=v${VERSION_NO_V%%.*}
+          REPO_LC="$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
           # Update all action.yml and action.yaml image tags (handle both : and @ before version)
           find . -type f \( -name action.yml -o -name action.yaml \) | while read f; do
-            sed -i -E "s|image: \"docker://ghcr.io/.*/stratus-actions/.+[:@][^\"]*\"|image: \"docker://ghcr.io/${{ github.repository }}/$(basename $(dirname $f)):${VERSION}\"|" "$f"
+            sed -i -E "s|image: \"docker://ghcr.io/.*/stratus-actions/.+[:@][^\"]*\"|image: \"docker://ghcr.io/${REPO_LC}/$(basename $(dirname $f)):${VERSION}\"|" "$f"
           done
           # Update all pyproject.toml version fields
           find . -type f -name pyproject.toml | while read f; do
