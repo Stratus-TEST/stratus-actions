@@ -357,6 +357,16 @@ class BuildScopeAnalyzer:
             'commit_sha': commit_sha
         }
 
+    def _build_app_item(self, app_info):
+        item = {
+            'path': app_info['path'],
+            'app_name': app_info['app_name'],
+            'dockerfiles': app_info['dockerfiles']
+        }
+        if app_info.get('app_config'):
+            item['app_config'] = app_info['app_config']
+        return item
+
     def analyze_all_builds(self) -> List[Dict]:
         """Analyze all apps in the include pattern, regardless of changes"""
         all_apps = []
@@ -369,14 +379,7 @@ class BuildScopeAnalyzer:
                 relative_path = Path('.')
                 app_info = self.analyze_folder(relative_path, set())
                 if app_info:
-                    item = {
-                        'path': app_info['path'],
-                        'app_name': app_info['app_name'],
-                        'dockerfiles': app_info['dockerfiles']
-                    }
-                    if app_info['app_config']:
-                        item['app_config'] = app_info['app_config']
-                    all_apps.append(item)
+                    all_apps.append(self._build_app_item(app_info))
             else:
                 pattern_parts = self.include_pattern.split('/')
 
@@ -393,14 +396,7 @@ class BuildScopeAnalyzer:
                                 if self.should_include_path(relative_path):
                                     app_info = self.analyze_folder(relative_path, set())
                                     if app_info:
-                                        item = {
-                                            'path': app_info['path'],
-                                            'app_name': app_info['app_name'],
-                                            'dockerfiles': app_info['dockerfiles']
-                                        }
-                                        if app_info['app_config']:
-                                            item['app_config'] = app_info['app_config']
-                                        all_apps.append(item)
+                                        all_apps.append(self._build_app_item(app_info))
                 else:
                     # Pattern is a specific directory
                     specific_dir = self.root_path / self.include_pattern
@@ -408,18 +404,11 @@ class BuildScopeAnalyzer:
                         try:
                             relative_path = specific_dir.relative_to(self.root_path)
                         except ValueError:
-                            # If not a subpath, treat as root
-                            relative_path = Path('.')
+                            logging.warning(f"Invalid or out-of-scope include pattern: {specific_dir}")
+                            continue
                         app_info = self.analyze_folder(relative_path, set())
                         if app_info:
-                            item = {
-                                'path': app_info['path'],
-                                'app_name': app_info['app_name'],
-                                'dockerfiles': app_info['dockerfiles']
-                            }
-                            if app_info['app_config']:
-                                item['app_config'] = app_info['app_config']
-                            all_apps.append(item)
+                            all_apps.append(self._build_app_item(app_info))
         else:
             # No include pattern, check all directories at root level
             for path in self.root_path.iterdir():
@@ -428,14 +417,7 @@ class BuildScopeAnalyzer:
                     if self.should_include_path(relative_path):
                         app_info = self.analyze_folder(relative_path, set())
                         if app_info:
-                            item = {
-                                'path': app_info['path'],
-                                'app_name': app_info['app_name'],
-                                'dockerfiles': app_info['dockerfiles']
-                            }
-                            if app_info['app_config']:
-                                item['app_config'] = app_info['app_config']
-                            all_apps.append(item)
+                            all_apps.append(self._build_app_item(app_info))
 
         return all_apps
 
