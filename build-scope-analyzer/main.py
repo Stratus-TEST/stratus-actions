@@ -615,6 +615,36 @@ def check_git_repository():
         logging.warning("This container is designed to run in the context of a git repository.")
         logging.warning("Results may not be as expected.")
 
+def configure_git_safe_directory(root_path):
+    """Ensure git safe.directory is set and log debug info."""
+    import getpass
+    logging.info(f"Current user: {getpass.getuser()}")
+    logging.info(f"Current working directory: {os.getcwd()}")
+    # Always use /github/workspace for Docker-based GitHub Actions
+    safe_dir = "/github/workspace"
+    try:
+        result = subprocess.run(
+            ["git", "config", "--global", "--add", "safe.directory", safe_dir],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        logging.info(f"git config --global --add safe.directory {safe_dir}: {result.stdout.strip()}")
+    except Exception as e:
+        logging.warning(f"Could not set git safe.directory: {e}")
+        if hasattr(e, 'stderr'):
+            logging.warning(f"git config error output: {e.stderr}")
+    try:
+        result = subprocess.run(
+            ["git", "config", "--global", "--get-all", "safe.directory"],
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        logging.info(f"Current git safe.directory entries: {result.stdout.strip()}")
+    except Exception as e:
+        logging.warning(f"Could not get git safe.directory entries: {e}")
+
 def main():
     """Main entry point"""
     # Configure logging to stderr, INFO level by default
@@ -640,6 +670,13 @@ def main():
     # Change working directory to root_path for correct git context
     os.chdir(args.root_path)
 
+    # Debug: print current user and working directory
+    import getpass
+    logging.info(f"Current user: {getpass.getuser()}")
+    logging.info(f"Current working directory: {os.getcwd()}")
+
+    # Configure git safe.directory for the current root path
+    configure_git_safe_directory(args.root_path)
     # Check if we're in a git repository (now in correct directory)
     check_git_repository()
 

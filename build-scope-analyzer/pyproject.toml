@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "build-scope-analyzer"
-version = "1.0.6"
+version = "1.0.7"
 description = "Analyze git changes to identify what needs to be built and generate strategy matrix"
 authors = [
     {name = "Stratus Team"}
