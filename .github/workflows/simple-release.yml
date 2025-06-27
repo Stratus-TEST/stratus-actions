@@ -54,10 +54,6 @@ jobs:
       - name: Checkout the new tag
         run: git checkout ${{ needs.create-release.outputs.new_version }}
 
-      - name: Set GITHUB_REF to tag
-        # This is necessary for the Docker metadata action to work correctly and belive we are in a tag context
-        run: echo "GITHUB_REF=refs/tags/${{ needs.create-release.outputs.new_version }}" >> $GITHUB_ENV
-
       - name: Log in to GHCR
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
