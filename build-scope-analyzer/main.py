@@ -619,7 +619,7 @@ def main():
     # Ensure /github/workspace is a safe directory for git (fixes dubious ownership error in CI)
     try:
         subprocess.run(
-            ["git", "config", "--global", "--add", "safe.directory", "/github/workspace"],
+            ["git", "config", "--local", "--add", "safe.directory", "/github/workspace"],
             check=True
         )
     except Exception as e:
