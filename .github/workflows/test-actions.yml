@@ -159,23 +159,75 @@ jobs:
 
       - name: Delete Test Releases and Test Tags
         if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            console.log('🧹 Cleaning up test releases and tags...');
+
+            try {
+              // List all releases in the repo
+              const { data: releases } = await github.rest.repos.listReleases({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100
+              });
+
+              // Filter and delete test releases
+              const testReleases = releases.filter(release => release.tag_name.startsWith('test-'));
+              console.log(`Found ${testReleases.length} test releases to delete`);
+
+              for (const release of testReleases) {
+                console.log(`Deleting release: ${release.tag_name}`);
+                try {
+                  await github.rest.repos.deleteRelease({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    release_id: release.id
+                  });
+                  console.log(`✅ Successfully deleted release: ${release.tag_name}`);
+                } catch (error) {
+                  console.error(`❌ Error deleting release ${release.tag_name}:`, error);
+                }
+              }
+
+              // List and delete test tags
+              const { data: refs } = await github.rest.git.listMatchingRefs({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: 'tags/test-'
+              });
+
+              console.log(`Found ${refs.length} test tags to delete`);
+
+              for (const ref of refs) {
+                const tagName = ref.ref.replace('refs/tags/', '');
+                console.log(`Deleting tag: ${tagName}`);
+                try {
+                  await github.rest.git.deleteRef({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ref: `tags/${tagName}`
+                  });
+                  console.log(`✅ Successfully deleted tag: ${tagName}`);
+                } catch (error) {
+                  console.error(`❌ Error deleting tag ${tagName}:`, error);
+                }
+              }
+
+              console.log('🏁 Test releases and tags cleanup completed');
+            } catch (error) {
+              console.error('❌ Error during cleanup:', error);
+            }
+
+      - name: Restore Original Action
+        if: always()
         run: |
-          # Delete all releases (draft or published) with tag starting with 'test-'
-          for tag in $(gh release list --limit 1000 --json tagName | jq -r '.[].tagName' | grep '^test-'); do
-            echo "Deleting release with tag: $tag"
-            gh release delete "$tag" --yes || true
-          done
-
-          # Delete all test tags (test-v*, test-latest, etc)
-          for tag in $(git tag -l 'test-*'); do
-            echo "Deleting test tag: $tag"
-            git push --delete origin "$tag" || true
-          done
-
           # Restore the original action
-          mv release/action.yml.bak release/action.yml || true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          if [ -f release/action.yml.bak ]; then
+            mv release/action.yml.bak release/action.yml
+            echo "✅ Restored original action.yml"
+          fi
 
   test-build-scope-analyzer:
     name: Test Build Scope Analyzer
@@ -291,24 +343,37 @@ jobs:
 
           echo "✅ Verification passed: Output uses 'comparison_ref' and include pattern works properly"
 
-      - name: Cleanup Test Resources
+      - name: Cleanup Test Branches
         if: always()
         run: |
-          echo "🧹 Cleaning up test resources..."
+          echo "🧹 Cleaning up test branches..."
+          # Make sure we're not on the branch we're trying to delete
+          git checkout main || git checkout master || echo "Could not checkout main/master"
+          # Force delete branches even if not merged
+          git branch -D test-base test-changes || echo "Could not delete test branches"
 
-          # Clean up test branches
-          git checkout main || git checkout master || true
-          git branch -D test-base test-changes || true
-
-          # Remove test Docker images
+      - name: Cleanup Test Docker Images
+        if: always()
+        run: |
+          echo "🧹 Cleaning up test Docker images..."
           SHORT_SHA=$(git rev-parse --short=7 HEAD)
           ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          docker rmi ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA || true
+          docker rmi ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA || echo "Could not remove Docker image"
 
-          # Clean up test files
-          rm -rf src/helloworld src/another-app matrix.json matrix-include.json || true
+      - name: Cleanup Test Files
+        if: always()
+        run: |
+          echo "🧹 Cleaning up test files..."
+          rm -rf src/helloworld src/another-app matrix.json matrix-include.json || echo "Could not remove test files"
 
-          echo "✅ Cleanup completed"
+      - name: Cleanup Summary
+        if: always()
+        run: |
+          echo "## Test Resources Cleanup" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Test branches: test-base, test-changes" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Test Docker images removed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Test files removed" >> $GITHUB_STEP_SUMMARY
+          echo "Completed: $(date)" >> $GITHUB_STEP_SUMMARY
 
   test-hello-world-docker:
     name: Test Hello World Docker Action
@@ -325,3 +390,291 @@ jobs:
       - name: Print Docker Action Output
         run: |
           echo "Docker action time output: ${{ steps.hello-docker.outputs.time }}"
+
+  cleanup-all-test-resources:
+    name: Final Test Resource Cleanup
+    if: always()
+    needs: [test-hello-world, test-release, test-build-scope-analyzer, test-hello-world-docker]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Delete ALL Test Releases and Tags
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            console.log('🧹 Running final cleanup of ALL test releases and tags...');
+
+            // Function to handle errors gracefully
+            const safeDelete = async (operation, fn) => {
+              try {
+                await fn();
+                return true;
+              } catch (error) {
+                console.error(`❌ Error during ${operation}:`, error.message);
+                return false;
+              }
+            };
+
+            // Get and delete all test releases
+            try {
+              // List all releases in the repo
+              const { data: releases } = await github.rest.repos.listReleases({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100
+              });
+
+              // Filter test releases
+              const testReleases = releases.filter(release =>
+                release.tag_name.startsWith('test-') ||
+                release.name.includes('Test') ||
+                release.name.includes('test')
+              );
+
+              console.log(`Found ${testReleases.length} test releases to delete`);
+
+              let deletedReleases = 0;
+              for (const release of testReleases) {
+                console.log(`Attempting to delete release: ${release.tag_name} (${release.name})`);
+                const success = await safeDelete(`release ${release.tag_name}`, async () => {
+                  await github.rest.repos.deleteRelease({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    release_id: release.id
+                  });
+                });
+
+                if (success) {
+                  deletedReleases++;
+                  console.log(`✅ Successfully deleted release: ${release.tag_name}`);
+                }
+              }
+
+              console.log(`🏁 Deleted ${deletedReleases} out of ${testReleases.length} test releases`);
+            } catch (error) {
+              console.error('❌ Error listing releases:', error.message);
+            }
+
+            // Get and delete all test tags
+            try {
+              // First try with prefix match
+              const { data: testTags } = await github.rest.git.listMatchingRefs({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: 'tags/test-'
+              });
+
+              console.log(`Found ${testTags.length} test tags with 'test-' prefix`);
+
+              let deletedTags = 0;
+              for (const ref of testTags) {
+                const tagName = ref.ref.replace('refs/tags/', '');
+                console.log(`Attempting to delete tag: ${tagName}`);
+                const success = await safeDelete(`tag ${tagName}`, async () => {
+                  await github.rest.git.deleteRef({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ref: `tags/${tagName}`
+                  });
+                });
+
+                if (success) {
+                  deletedTags++;
+                  console.log(`✅ Successfully deleted tag: ${tagName}`);
+                }
+              }
+
+              // Now get all tags and filter for other potential test tags
+              const { data: allRefs } = await github.rest.git.listMatchingRefs({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: 'tags/'
+              });
+
+              const otherTestTags = allRefs.filter(ref => {
+                const tagName = ref.ref.replace('refs/tags/', '');
+                return tagName.includes('test') && !tagName.startsWith('test-');
+              });
+
+              console.log(`Found ${otherTestTags.length} additional test tags`);
+
+              for (const ref of otherTestTags) {
+                const tagName = ref.ref.replace('refs/tags/', '');
+                console.log(`Attempting to delete additional test tag: ${tagName}`);
+                const success = await safeDelete(`tag ${tagName}`, async () => {
+                  await github.rest.git.deleteRef({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ref: `tags/${tagName}`
+                  });
+                });
+
+                if (success) {
+                  deletedTags++;
+                  console.log(`✅ Successfully deleted additional test tag: ${tagName}`);
+                }
+              }
+
+              console.log(`🏁 Deleted ${deletedTags} test tags in total`);              // Add summary information for tags/releases
+              core.summary
+                .addHeading('Final Cleanup Results')
+                .addTable([
+                  [{ data: 'Resource Type', header: true }, { data: 'Found', header: true }, { data: 'Deleted', header: true }],
+                  ['Test Releases', testReleases.length.toString(), deletedReleases.toString()],
+                  ['Test Tags', (testTags.length + otherTestTags.length).toString(), deletedTags.toString()]
+                ])
+                .addLink('Workflow Run', `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`);
+
+            } catch (error) {
+              console.error('❌ Error managing tags:', error.message);
+              core.summary
+                .addHeading('Cleanup Error')
+                .addCodeBlock(error.message, 'js')
+                .addLink('Workflow Run', `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`);
+            }
+
+      - name: Delete Test GHCR Packages
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            console.log('🧹 Running cleanup of test packages from GitHub Container Registry...');
+
+            try {
+              // Get the org/repo name
+              const orgRepo = process.env.GITHUB_REPOSITORY.toLowerCase();
+              console.log(`Looking for packages in: ${orgRepo}`);
+
+              // Get all container packages
+              const [owner, repo] = orgRepo.split('/');
+              const { data: packages } = await github.rest.packages.listPackagesForOrganization({
+                package_type: 'container',
+                org: owner
+              });
+
+              console.log(`Found ${packages.length} total container packages in org`);
+
+              // Find test packages (those with build-scope-analyzer that were created within the last 24 hours)
+              const testPackages = packages.filter(pkg => {
+                // Filter for build-scope-analyzer packages
+                if (!pkg.name.includes('build-scope-analyzer')) {
+                  return false;
+                }
+
+                // Check if it was created in the last 24 hours
+                const createdAt = new Date(pkg.created_at);
+                const oneDayAgo = new Date();
+                oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+                return createdAt > oneDayAgo;
+              });
+
+              console.log(`Found ${testPackages.length} recent test packages to clean up`);
+
+              // Track deletions
+              let deletedPackageCount = 0;
+              let deletedVersionCount = 0;
+
+              // For each package, list and delete versions with test tags
+              for (const pkg of testPackages) {
+                console.log(`Processing package: ${pkg.name}`);
+
+                try {
+                  // Get all versions of this package
+                  const { data: versions } = await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
+                    package_type: 'container',
+                    package_name: pkg.name,
+                    org: owner
+                  });
+
+                  console.log(`Found ${versions.length} versions of package ${pkg.name}`);
+
+                  // Filter for test versions (sha-* tags, test-* tags, created in last 24h)
+                  const testVersions = versions.filter(version => {
+                    // Check if it has a test tag
+                    const hasTestTag = version.metadata?.container?.tags.some(tag =>
+                      tag.startsWith('sha-') || tag.startsWith('test-') || tag.includes('-test')
+                    );
+
+                    if (!hasTestTag) return false;
+
+                    // Check if it was created in the last 24 hours
+                    const createdAt = new Date(version.created_at);
+                    const oneDayAgo = new Date();
+                    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+                    return createdAt > oneDayAgo;
+                  });
+
+                  console.log(`Found ${testVersions.length} test versions to delete for ${pkg.name}`);
+
+                  // Delete each test version
+                  for (const version of testVersions) {
+                    try {
+                      console.log(`Deleting package version: ${pkg.name}@${version.id} with tags: ${JSON.stringify(version.metadata?.container?.tags)}`);
+
+                      await github.rest.packages.deletePackageVersionForOrg({
+                        package_type: 'container',
+                        package_name: pkg.name,
+                        org: owner,
+                        package_version_id: version.id
+                      });
+
+                      console.log(`✅ Successfully deleted package version: ${pkg.name}@${version.id}`);
+                      deletedVersionCount++;
+                    } catch (error) {
+                      console.error(`❌ Error deleting package version ${pkg.name}@${version.id}:`, error.message);
+                    }
+                  }
+
+                  // If all versions were deleted, check if the package is now empty
+                  const { data: remainingVersions } = await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
+                    package_type: 'container',
+                    package_name: pkg.name,
+                    org: owner
+                  });
+
+                  if (remainingVersions.length === 0) {
+                    try {
+                      console.log(`Package ${pkg.name} has no versions left, deleting the package`);
+
+                      await github.rest.packages.deletePackageForOrg({
+                        package_type: 'container',
+                        package_name: pkg.name,
+                        org: owner
+                      });
+
+                      console.log(`✅ Successfully deleted empty package: ${pkg.name}`);
+                      deletedPackageCount++;
+                    } catch (error) {
+                      console.error(`❌ Error deleting empty package ${pkg.name}:`, error.message);
+                    }
+                  }
+                } catch (error) {
+                  console.error(`❌ Error processing package ${pkg.name}:`, error.message);
+                }
+              }
+
+              console.log(`🏁 Package cleanup complete. Deleted ${deletedVersionCount} package versions and ${deletedPackageCount} empty packages`);
+
+              // Add to the summary report
+              core.summary
+                .addHeading('GHCR Package Cleanup')
+                .addTable([
+                  [{ data: 'Resource Type', header: true }, { data: 'Found', header: true }, { data: 'Deleted', header: true }],
+                  ['Test Packages', testPackages.length.toString(), deletedPackageCount.toString()],
+                  ['Test Package Versions', 'N/A', deletedVersionCount.toString()]
+                ])
+                .write();
+
+            } catch (error) {
+              console.error('❌ Error during GHCR package cleanup:', error.message);
+              core.summary
+                .addHeading('GHCR Package Cleanup Error')
+                .addCodeBlock(error.message, 'js')
+                .write();
+            }
