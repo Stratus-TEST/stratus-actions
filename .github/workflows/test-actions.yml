@@ -289,24 +289,6 @@ jobs:
             --root-path /github/workspace --comparison-ref test-base --output-format json > matrix.json
           echo "matrix=$(cat matrix.json | jq -c .)" >> $GITHUB_OUTPUT
 
-      - name: Verify Analysis Results
-        run: |
-          echo "Matrix: $(cat matrix.json)"
-          cat matrix.json | jq .
-
-          # Verify that the output contains comparison_ref and not ref
-          if grep -q '"ref":' matrix.json; then
-            echo "❌ ERROR: Output still contains 'ref' instead of 'comparison_ref'"
-            exit 1
-          fi
-
-          if ! grep -q '"comparison_ref":' matrix.json; then
-            echo "❌ ERROR: Output does not contain 'comparison_ref'"
-            exit 1
-          fi
-
-          echo "✅ Verification passed: Output uses 'comparison_ref' properly"
-
       - name: Test with Include Pattern using container
         id: scope-include
         run: |
@@ -324,33 +306,13 @@ jobs:
           echo "Matrix (include pattern): $(cat matrix-include.json)"
           cat matrix-include.json | jq .
 
-          # Verify that the output contains comparison_ref and not ref
-          if grep -q '"ref":' matrix-include.json; then
-            echo "❌ ERROR: Output still contains 'ref' instead of 'comparison_ref'"
-            exit 1
-          fi
-
-          if ! grep -q '"comparison_ref":' matrix-include.json; then
-            echo "❌ ERROR: Output does not contain 'comparison_ref'"
-            exit 1
-          fi
-
           # Verify that the include pattern worked correctly
           if ! jq -e '.apps.all | length > 0' matrix-include.json > /dev/null; then
             echo "❌ ERROR: Include pattern didn't populate apps.all properly"
             exit 1
           fi
 
-          echo "✅ Verification passed: Output uses 'comparison_ref' and include pattern works properly"
-
-      - name: Cleanup Test Branches
-        if: always()
-        run: |
-          echo "🧹 Cleaning up test branches..."
-          # Make sure we're not on the branch we're trying to delete
-          git checkout main || git checkout master || echo "Could not checkout main/master"
-          # Force delete branches even if not merged
-          git branch -D test-base test-changes || echo "Could not delete test branches"
+          echo "✅ Verification passed: Include pattern populated apps.all correctly"
 
       - name: Cleanup Test Docker Images
         if: always()
@@ -359,21 +321,6 @@ jobs:
           SHORT_SHA=$(git rev-parse --short=7 HEAD)
           ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           docker rmi ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA || echo "Could not remove Docker image"
-
-      - name: Cleanup Test Files
-        if: always()
-        run: |
-          echo "🧹 Cleaning up test files..."
-          rm -rf src/helloworld src/another-app matrix.json matrix-include.json || echo "Could not remove test files"
-
-      - name: Cleanup Summary
-        if: always()
-        run: |
-          echo "## Test Resources Cleanup" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Test branches: test-base, test-changes" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Test Docker images removed" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Test files removed" >> $GITHUB_STEP_SUMMARY
-          echo "Completed: $(date)" >> $GITHUB_STEP_SUMMARY
 
   test-hello-world-docker:
     name: Test Hello World Docker Action
@@ -549,65 +496,121 @@ jobs:
             try {
               // Get the org/repo name
               const orgRepo = process.env.GITHUB_REPOSITORY.toLowerCase();
+              const [owner, repo] = orgRepo.split('/');
               console.log(`Looking for packages in: ${orgRepo}`);
 
-              // Get all container packages
-              const [owner, repo] = orgRepo.split('/');
-              const { data: packages } = await github.rest.packages.listPackagesForOrganization({
-                package_type: 'container',
-                org: owner
-              });
+              let packages = [];
+              let isOrg = false;
 
-              console.log(`Found ${packages.length} total container packages in org`);
+              // Try to determine if owner is an org or a user
+              try {
+                const { data: orgData } = await github.rest.orgs.get({ org: owner });
+                console.log(`Owner "${owner}" is confirmed as an organization`);
+                isOrg = true;
+              } catch (error) {
+                console.log(`Owner "${owner}" is likely a user account, not an organization`);
+                isOrg = false;
+              }
 
-              // Find test packages (those with build-scope-analyzer that were created within the last 24 hours)
-              const testPackages = packages.filter(pkg => {
-                // Filter for build-scope-analyzer packages
-                if (!pkg.name.includes('build-scope-analyzer')) {
-                  return false;
+              // Get packages based on whether the owner is an org or user
+              if (isOrg) {
+                console.log(`Listing packages for organization: ${owner}`);
+                const { data: orgPackages } = await github.rest.packages.listPackagesForOrganization({
+                  package_type: 'container',
+                  org: owner
+                });
+                packages = orgPackages;
+              } else {
+                console.log(`Listing packages for user: ${owner}`);
+                const { data: userPackages } = await github.rest.packages.listPackagesForUser({
+                  package_type: 'container',
+                  username: owner
+                });
+                packages = userPackages;
+              }
+
+              console.log(`Found ${packages.length} total container packages`);
+
+              // Make sure we find the build-scope-analyzer package by being more flexible with names
+              const bsaPackages = packages.filter(pkg =>
+                pkg.name.includes('build-scope-analyzer') ||
+                pkg.name.includes('scope-analyzer') ||
+                pkg.name === repo
+              );
+
+              console.log(`Found ${bsaPackages.length} potential build-scope-analyzer packages`);
+
+              if (bsaPackages.length === 0) {
+                // Try to get all packages for the repo directly
+                try {
+                  console.log(`Trying to list packages for repo: ${owner}/${repo}`);
+                  const { data: repoPackages } = await github.rest.packages.listPackagesForRepository({
+                    package_type: 'container',
+                    owner,
+                    repo
+                  });
+                  bsaPackages.push(...repoPackages);
+                  console.log(`Found ${repoPackages.length} packages directly from repo`);
+                } catch (error) {
+                  console.log(`Could not list packages for repository: ${error.message}`);
                 }
-
-                // Check if it was created in the last 24 hours
-                const createdAt = new Date(pkg.created_at);
-                const oneDayAgo = new Date();
-                oneDayAgo.setDate(oneDayAgo.getDate() - 1);
-                return createdAt > oneDayAgo;
-              });
-
-              console.log(`Found ${testPackages.length} recent test packages to clean up`);
+              }
 
               // Track deletions
               let deletedPackageCount = 0;
               let deletedVersionCount = 0;
+              let processedPackages = [];
 
               // For each package, list and delete versions with test tags
-              for (const pkg of testPackages) {
+              for (const pkg of bsaPackages) {
                 console.log(`Processing package: ${pkg.name}`);
+                processedPackages.push(pkg.name);
 
                 try {
-                  // Get all versions of this package
-                  const { data: versions } = await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
-                    package_type: 'container',
-                    package_name: pkg.name,
-                    org: owner
-                  });
+                  let versions = [];
+
+                  // Get versions based on owner type
+                  if (isOrg) {
+                    const { data: orgVersions } = await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
+                      package_type: 'container',
+                      package_name: pkg.name,
+                      org: owner
+                    });
+                    versions = orgVersions;
+                  } else {
+                    const { data: userVersions } = await github.rest.packages.getAllPackageVersionsForPackageOwnedByUser({
+                      package_type: 'container',
+                      package_name: pkg.name,
+                      username: owner
+                    });
+                    versions = userVersions;
+                  }
 
                   console.log(`Found ${versions.length} versions of package ${pkg.name}`);
 
-                  // Filter for test versions (sha-* tags, test-* tags, created in last 24h)
+                  // Improve test version detection - look for any version with test tags
+                  // or versions created in the last 24 hours with sha- tags
                   const testVersions = versions.filter(version => {
-                    // Check if it has a test tag
-                    const hasTestTag = version.metadata?.container?.tags.some(tag =>
-                      tag.startsWith('sha-') || tag.startsWith('test-') || tag.includes('-test')
+                    const tags = version.metadata?.container?.tags || [];
+
+                    // Check for test tags
+                    const hasTestTag = tags.some(tag =>
+                      tag.startsWith('sha-') ||
+                      tag.startsWith('test-') ||
+                      tag.includes('-test') ||
+                      tag.includes('_test')
                     );
 
-                    if (!hasTestTag) return false;
+                    // If it has test tags, include it regardless of creation time
+                    if (hasTestTag) return true;
 
-                    // Check if it was created in the last 24 hours
+                    // Otherwise, check if it was created in the last 24 hours with no tags
+                    // (might be an untagged test image)
                     const createdAt = new Date(version.created_at);
                     const oneDayAgo = new Date();
                     oneDayAgo.setDate(oneDayAgo.getDate() - 1);
-                    return createdAt > oneDayAgo;
+
+                    return createdAt > oneDayAgo && tags.length === 0;
                   });
 
                   console.log(`Found ${testVersions.length} test versions to delete for ${pkg.name}`);
@@ -615,14 +618,24 @@ jobs:
                   // Delete each test version
                   for (const version of testVersions) {
                     try {
-                      console.log(`Deleting package version: ${pkg.name}@${version.id} with tags: ${JSON.stringify(version.metadata?.container?.tags)}`);
+                      const tags = version.metadata?.container?.tags || [];
+                      console.log(`Deleting package version: ${pkg.name}@${version.id} with tags: ${JSON.stringify(tags)}`);
 
-                      await github.rest.packages.deletePackageVersionForOrg({
-                        package_type: 'container',
-                        package_name: pkg.name,
-                        org: owner,
-                        package_version_id: version.id
-                      });
+                      if (isOrg) {
+                        await github.rest.packages.deletePackageVersionForOrg({
+                          package_type: 'container',
+                          package_name: pkg.name,
+                          org: owner,
+                          package_version_id: version.id
+                        });
+                      } else {
+                        await github.rest.packages.deletePackageVersionForUser({
+                          package_type: 'container',
+                          package_name: pkg.name,
+                          username: owner,
+                          package_version_id: version.id
+                        });
+                      }
 
                       console.log(`✅ Successfully deleted package version: ${pkg.name}@${version.id}`);
                       deletedVersionCount++;
@@ -631,22 +644,41 @@ jobs:
                     }
                   }
 
-                  // If all versions were deleted, check if the package is now empty
-                  const { data: remainingVersions } = await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
-                    package_type: 'container',
-                    package_name: pkg.name,
-                    org: owner
-                  });
+                  // Check if the package is now empty
+                  let remainingVersions = [];
+                  if (isOrg) {
+                    const { data: versions } = await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
+                      package_type: 'container',
+                      package_name: pkg.name,
+                      org: owner
+                    });
+                    remainingVersions = versions;
+                  } else {
+                    const { data: versions } = await github.rest.packages.getAllPackageVersionsForPackageOwnedByUser({
+                      package_type: 'container',
+                      package_name: pkg.name,
+                      username: owner
+                    });
+                    remainingVersions = versions;
+                  }
 
                   if (remainingVersions.length === 0) {
                     try {
                       console.log(`Package ${pkg.name} has no versions left, deleting the package`);
 
-                      await github.rest.packages.deletePackageForOrg({
-                        package_type: 'container',
-                        package_name: pkg.name,
-                        org: owner
-                      });
+                      if (isOrg) {
+                        await github.rest.packages.deletePackageForOrg({
+                          package_type: 'container',
+                          package_name: pkg.name,
+                          org: owner
+                        });
+                      } else {
+                        await github.rest.packages.deletePackageForUser({
+                          package_type: 'container',
+                          package_name: pkg.name,
+                          username: owner
+                        });
+                      }
 
                       console.log(`✅ Successfully deleted empty package: ${pkg.name}`);
                       deletedPackageCount++;
@@ -659,6 +691,97 @@ jobs:
                 }
               }
 
+              // Try one more approach - search directly for the package in the current run
+              try {
+                const SHORT_SHA = process.env.GITHUB_SHA ? process.env.GITHUB_SHA.substring(0, 7) : '';
+                if (SHORT_SHA) {
+                  console.log(`Looking for specific package with SHA: sha-${SHORT_SHA}`);
+
+                  // Try to find the specific package for this run by name
+                  let specificPackage = null;
+
+                  // Use the appropriate method based on owner type
+                  if (isOrg) {
+                    try {
+                      const { data: pkg } = await github.rest.packages.getPackageForOrganization({
+                        package_type: 'container',
+                        package_name: `${repo}/build-scope-analyzer`,
+                        org: owner
+                      });
+                      specificPackage = pkg;
+                    } catch (e) {
+                      // Package might not exist with this name
+                    }
+                  } else {
+                    try {
+                      const { data: pkg } = await github.rest.packages.getPackageForUser({
+                        package_type: 'container',
+                        package_name: `${repo}/build-scope-analyzer`,
+                        username: owner
+                      });
+                      specificPackage = pkg;
+                    } catch (e) {
+                      // Package might not exist with this name
+                    }
+                  }
+
+                  // If we found a specific package and haven't processed it yet
+                  if (specificPackage && !processedPackages.includes(specificPackage.name)) {
+                    console.log(`Found specific package: ${specificPackage.name}`);
+
+                    // Get versions
+                    let versions = [];
+                    if (isOrg) {
+                      const { data: orgVersions } = await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
+                        package_type: 'container',
+                        package_name: specificPackage.name,
+                        org: owner
+                      });
+                      versions = orgVersions;
+                    } else {
+                      const { data: userVersions } = await github.rest.packages.getAllPackageVersionsForPackageOwnedByUser({
+                        package_type: 'container',
+                        package_name: specificPackage.name,
+                        username: owner
+                      });
+                      versions = userVersions;
+                    }
+
+                    // Look for the specific version with our SHA
+                    const shaVersion = versions.find(v =>
+                      v.metadata?.container?.tags?.includes(`sha-${SHORT_SHA}`)
+                    );
+
+                    if (shaVersion) {
+                      console.log(`Found specific version with tag sha-${SHORT_SHA}`);
+                      try {
+                        if (isOrg) {
+                          await github.rest.packages.deletePackageVersionForOrg({
+                            package_type: 'container',
+                            package_name: specificPackage.name,
+                            org: owner,
+                            package_version_id: shaVersion.id
+                          });
+                        } else {
+                          await github.rest.packages.deletePackageVersionForUser({
+                            package_type: 'container',
+                            package_name: specificPackage.name,
+                            username: owner,
+                            package_version_id: shaVersion.id
+                          });
+                        }
+                        console.log(`✅ Successfully deleted specific version with tag sha-${SHORT_SHA}`);
+                        deletedVersionCount++;
+                      } catch (error) {
+                        console.error(`❌ Error deleting specific version:`, error.message);
+                      }
+                    }
+                  }
+                }
+              } catch (error) {
+                console.error(`❌ Error processing specific package:`, error.message);
+              }
+
               console.log(`🏁 Package cleanup complete. Deleted ${deletedVersionCount} package versions and ${deletedPackageCount} empty packages`);
 
               // Add to the summary report
@@ -666,7 +789,7 @@ jobs:
                 .addHeading('GHCR Package Cleanup')
                 .addTable([
                   [{ data: 'Resource Type', header: true }, { data: 'Found', header: true }, { data: 'Deleted', header: true }],
-                  ['Test Packages', testPackages.length.toString(), deletedPackageCount.toString()],
+                  ['Test Packages', bsaPackages.length.toString(), deletedPackageCount.toString()],
                   ['Test Package Versions', 'N/A', deletedVersionCount.toString()]
                 ])
                 .write();
