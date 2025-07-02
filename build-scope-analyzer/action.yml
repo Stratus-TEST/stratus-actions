@@ -4,9 +4,9 @@ author: "Stratus Team"
 
 inputs:
   root-path:
-    description: "Root path to search for changes (defaults to GITHUB_WORKSPACE)"
+    description: "Root path to search for changes (defaults to /github/workspace)"
     required: false
-    default: ${{ github.workspace }}
+    default: /github/workspace
   include-pattern:
     description: 'Glob pattern for paths to include (e.g., "apps/*")'
     required: false
@@ -51,7 +51,7 @@ outputs:
 
 runs:
   using: "docker"
-  image: "docker://ghcr.io/stratus-test/stratus-actions/build-scope-analyzer:v1.0.10"
+  image: "docker://ghcr.io/stratus-test/stratus-actions/build-scope-analyzer:v1.0.11"
   args:
     - "--root-path"
     - "${{ inputs.root-path }}"
