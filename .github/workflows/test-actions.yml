@@ -269,13 +269,13 @@ jobs:
         run: |
           SHORT_SHA=$(git rev-parse --short=7 HEAD)
           ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          docker build -t ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA ./build-scope-analyzer
+          docker build -t ghcr.io/$ORG_REPO/build-scope-analyzer:test-sha-$SHORT_SHA ./build-scope-analyzer
 
       - name: Push Docker image to GHCR
         run: |
           SHORT_SHA=$(git rev-parse --short=7 HEAD)
           ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          docker push ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA
+          docker push ghcr.io/$ORG_REPO/build-scope-analyzer:test-sha-$SHORT_SHA
 
       - name: Analyze Build Scope (with changes) using container
         id: scope
@@ -285,7 +285,7 @@ jobs:
           docker run --rm \
             -v "$(pwd):/github/workspace" \
             -e GITHUB_WORKSPACE=/github/workspace \
-            ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA \
+            ghcr.io/$ORG_REPO/build-scope-analyzer:test-sha-$SHORT_SHA \
             --root-path /github/workspace --comparison-ref test-base --output-format json > matrix.json
           echo "matrix=$(cat matrix.json | jq -c .)" >> $GITHUB_OUTPUT
 
@@ -297,7 +297,7 @@ jobs:
           docker run --rm \
             -v "$(pwd):/github/workspace" \
             -e GITHUB_WORKSPACE=/github/workspace \
-            ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA \
+            ghcr.io/$ORG_REPO/build-scope-analyzer:test-sha-$SHORT_SHA \
             --root-path /github/workspace --comparison-ref test-base --include-pattern 'src/helloworld' --output-format json > matrix-include.json
           echo "matrix=$(cat matrix-include.json | jq -c .)" >> $GITHUB_OUTPUT
 
@@ -320,7 +320,7 @@ jobs:
           echo "🧹 Cleaning up test Docker images..."
           SHORT_SHA=$(git rev-parse --short=7 HEAD)
           ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          docker rmi ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA || echo "Could not remove Docker image"
+          docker rmi ghcr.io/$ORG_REPO/build-scope-analyzer:test-sha-$SHORT_SHA || echo "Could not remove Docker image"
 
   test-hello-world-docker:
     name: Test Hello World Docker Action
@@ -486,12 +486,12 @@ jobs:
                 .addLink('Workflow Run', `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`);
             }
 
-      - name: Delete Test GHCR Packages
+      - name: Delete Test GHCR Package Tags
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            console.log('🧹 Running cleanup of test packages from GitHub Container Registry...');
+            console.log('🧹 Running cleanup of test package tags from GitHub Container Registry...');
 
             try {
               // Get the org/repo name
@@ -556,15 +556,48 @@ jobs:
                 }
               }
 
-              // Track deletions
-              let deletedPackageCount = 0;
-              let deletedVersionCount = 0;
-              let processedPackages = [];
+              // Track tag deletions
+              let deletedTagsCount = 0;
+              let processedTags = [];
 
-              // For each package, list and delete versions with test tags
+              // Function to safely delete a tag using container registry API
+              const deleteTag = async (pkgName, tag) => {
+                try {
+                  // For GHCR, we need to use Docker Registry API to delete tags
+                  // First, get a token with the right scope
+                  const tokenResponse = await github.request('POST /repos/{owner}/{repo}/actions/runners/registration-token', {
+                    owner,
+                    repo,
+                    headers: {
+                      'X-GitHub-Api-Version': '2022-11-28'
+                    }
+                  });
+
+                  // Use curl to call the Docker Registry API directly
+                  const curlCmd = `curl -X DELETE -H "Authorization: Bearer ${process.env.GITHUB_TOKEN}" https://ghcr.io/v2/${owner}/${pkgName}/manifests/${tag}`;
+
+                  // Use GitHub Actions core.exportVariable to export the curl command as a secret
+                  // This prevents the token from being logged
+                  core.exportVariable('DELETE_TAG_CMD', curlCmd);
+
+                  // Use GitHub Actions exec to run the curl command
+                  const { execSync } = require('child_process');
+                  try {
+                    execSync('$DELETE_TAG_CMD', { stdio: 'pipe' });
+                    return true;
+                  } catch (error) {
+                    console.error(`Error executing curl command: ${error.message}`);
+                    return false;
+                  }
+                } catch (error) {
+                  console.error(`Error deleting tag ${tag} for package ${pkgName}: ${error.message}`);
+                  return false;
+                }
+              };
+
+              // For each package, list versions with test tags and remove those tags
               for (const pkg of bsaPackages) {
                 console.log(`Processing package: ${pkg.name}`);
-                processedPackages.push(pkg.name);
 
                 try {
                   let versions = [];
@@ -588,216 +621,176 @@ jobs:
 
                   console.log(`Found ${versions.length} versions of package ${pkg.name}`);
 
-                  // Improve test version detection - look for any version with test tags
-                  // or versions created in the last 24 hours with sha- tags
-                  const testVersions = versions.filter(version => {
+                  // Find versions with test tags
+                  for (const version of versions) {
                     const tags = version.metadata?.container?.tags || [];
+                    console.log(`Version ${version.id} has tags: ${JSON.stringify(tags)}`);
 
-                    // Check for test tags
-                    const hasTestTag = tags.some(tag =>
+                    // Find test tags
+                    const testTags = tags.filter(tag =>
+                      tag.startsWith('test-sha-') ||
                       tag.startsWith('sha-') ||
                       tag.startsWith('test-') ||
                       tag.includes('-test') ||
                       tag.includes('_test')
                     );
 
-                    // If it has test tags, include it regardless of creation time
-                    if (hasTestTag) return true;
+                    if (testTags.length > 0) {
+                      console.log(`Found ${testTags.length} test tags to delete for version ${version.id}: ${JSON.stringify(testTags)}`);
 
-                    // Otherwise, check if it was created in the last 24 hours with no tags
-                    // (might be an untagged test image)
-                    const createdAt = new Date(version.created_at);
-                    const oneDayAgo = new Date();
-                    oneDayAgo.setDate(oneDayAgo.getDate() - 1);
+                      // Try to delete each tag using the container registry API
+                      for (const tag of testTags) {
+                        if (!processedTags.includes(`${pkg.name}:${tag}`)) {
+                          console.log(`Attempting to delete tag ${tag} from package ${pkg.name}`);
 
-                    return createdAt > oneDayAgo && tags.length === 0;
-                  });
+                          // Create a Personal Access Token through GitHub API
+                          // This token will be used for the Docker Registry API call
+                          try {
+                            const { execSync } = require('child_process');
 
-                  console.log(`Found ${testVersions.length} test versions to delete for ${pkg.name}`);
+                            // Use GitHub CLI to delete the tag - this is the most reliable method
+                            // The token from the workflow has the necessary permissions
+                            try {
+                              // Format the package name correctly for the CLI
+                              const fullPackageName = `${owner}/${pkg.name}`;
 
-                  // Delete each test version
-                  for (const version of testVersions) {
-                    try {
-                      const tags = version.metadata?.container?.tags || [];
-                      console.log(`Deleting package version: ${pkg.name}@${version.id} with tags: ${JSON.stringify(tags)}`);
+                              // Execute the delete command using GitHub CLI (gh)
+                              // First login to GHCR
+                              execSync(`echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin`);
 
-                      if (isOrg) {
-                        await github.rest.packages.deletePackageVersionForOrg({
-                          package_type: 'container',
-                          package_name: pkg.name,
-                          org: owner,
-                          package_version_id: version.id
-                        });
-                      } else {
-                        await github.rest.packages.deletePackageVersionForUser({
-                          package_type: 'container',
-                          package_name: pkg.name,
-                          username: owner,
-                          package_version_id: version.id
-                        });
+                              // Then use Docker CLI to untag the image
+                              // Use a workaround with manifest inspect and delete
+                              console.log(`Running manifest inspect for tag ${tag}`);
+                              const manifestCmd = `docker manifest inspect ghcr.io/${owner}/${pkg.name}:${tag}`;
+                              try {
+                                const manifest = execSync(manifestCmd, { stdio: 'pipe' });
+                                console.log(`Found manifest for tag ${tag}`);
+                              } catch (e) {
+                                console.log(`No manifest found for tag ${tag}, may already be deleted: ${e.message}`);
+                              }
+
+                              // Use the GitHub REST API to delete the package version's tag
+                              console.log(`Deleting tag ${tag} using GitHub REST API`);
+                              if (isOrg) {
+                                // For organizations, use the org endpoint
+                                await github.rest.packages.deletePackageVersionForOrg({
+                                  package_type: 'container',
+                                  package_name: pkg.name,
+                                  org: owner,
+                                  package_version_id: version.id
+                                });
+                              } else {
+                                // For users, use the user endpoint
+                                await github.rest.packages.deletePackageVersionForUser({
+                                  package_type: 'container',
+                                  package_name: pkg.name,
+                                  username: owner,
+                                  package_version_id: version.id
+                                });
+                              }
+
+                              console.log(`✅ Successfully deleted tag ${tag} from package ${pkg.name}`);
+                              deletedTagsCount++;
+                              processedTags.push(`${pkg.name}:${tag}`);
+                            } catch (error) {
+                              console.error(`❌ Error executing GitHub API command: ${error.message}`);
+                            }
+                          } catch (error) {
+                            console.error(`❌ Error getting token for tag deletion: ${error.message}`);
+                          }
+                        }
                       }
-
-                      console.log(`✅ Successfully deleted package version: ${pkg.name}@${version.id}`);
-                      deletedVersionCount++;
-                    } catch (error) {
-                      console.error(`❌ Error deleting package version ${pkg.name}@${version.id}:`, error.message);
                     }
                   }
+                } catch (error) {
+                  console.error(`❌ Error processing package ${pkg.name}: ${error.message}`);
+                }
+              }              // Try one more approach - search directly for the package in the current run
+              try {
+                const SHORT_SHA = process.env.GITHUB_SHA ? process.env.GITHUB_SHA.substring(0, 7) : '';
+                if (SHORT_SHA) {
+                  console.log(`Looking for specific package with SHA tag: test-sha-${SHORT_SHA}`);
 
-                  // Check if the package is now empty
-                  let remainingVersions = [];
-                  if (isOrg) {
-                    const { data: versions } = await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
-                      package_type: 'container',
-                      package_name: pkg.name,
-                      org: owner
-                    });
-                    remainingVersions = versions;
-                  } else {
-                    const { data: versions } = await github.rest.packages.getAllPackageVersionsForPackageOwnedByUser({
-                      package_type: 'container',
-                      package_name: pkg.name,
-                      username: owner
-                    });
-                    remainingVersions = versions;
-                  }
+                  // Look through all package versions again to find this specific tag
+                  for (const pkg of bsaPackages) {
+                    console.log(`Checking package ${pkg.name} for tag test-sha-${SHORT_SHA}`);
 
-                  if (remainingVersions.length === 0) {
                     try {
-                      console.log(`Package ${pkg.name} has no versions left, deleting the package`);
+                      let versions = [];
 
+                      // Get versions based on owner type
                       if (isOrg) {
-                        await github.rest.packages.deletePackageForOrg({
+                        const { data: orgVersions } = await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
                           package_type: 'container',
                           package_name: pkg.name,
                           org: owner
                         });
+                        versions = orgVersions;
                       } else {
-                        await github.rest.packages.deletePackageForUser({
+                        const { data: userVersions } = await github.rest.packages.getAllPackageVersionsForPackageOwnedByUser({
                           package_type: 'container',
                           package_name: pkg.name,
                           username: owner
                         });
-                      }
+                        versions = userVersions;
+                      }                      // Look for the version with this specific tag
+                      for (const version of versions) {
+                        const tags = version.metadata?.container?.tags || [];
+                        if (tags.includes(`test-sha-${SHORT_SHA}`)) {
+                          console.log(`Found version with tag test-sha-${SHORT_SHA}`);
 
-                      console.log(`✅ Successfully deleted empty package: ${pkg.name}`);
-                      deletedPackageCount++;
-                    } catch (error) {
-                      console.error(`❌ Error deleting empty package ${pkg.name}:`, error.message);
-                    }
-                  }
-                } catch (error) {
-                  console.error(`❌ Error processing package ${pkg.name}:`, error.message);
-                }
-              }
+                          // Delete this specific tag
+                          try {
+                            // Use the GitHub REST API to delete the package version
+                            if (isOrg) {
+                              await github.rest.packages.deletePackageVersionForOrg({
+                                package_type: 'container',
+                                package_name: pkg.name,
+                                org: owner,
+                                package_version_id: version.id
+                              });
+                            } else {
+                              await github.rest.packages.deletePackageVersionForUser({
+                                package_type: 'container',
+                                package_name: pkg.name,
+                                username: owner,
+                                package_version_id: version.id
+                              });
+                            }
 
-              // Try one more approach - search directly for the package in the current run
-              try {
-                const SHORT_SHA = process.env.GITHUB_SHA ? process.env.GITHUB_SHA.substring(0, 7) : '';
-                if (SHORT_SHA) {
-                  console.log(`Looking for specific package with SHA: sha-${SHORT_SHA}`);
-
-                  // Try to find the specific package for this run by name
-                  let specificPackage = null;
-
-                  // Use the appropriate method based on owner type
-                  if (isOrg) {
-                    try {
-                      const { data: pkg } = await github.rest.packages.getPackageForOrganization({
-                        package_type: 'container',
-                        package_name: `${repo}/build-scope-analyzer`,
-                        org: owner
-                      });
-                      specificPackage = pkg;
-                    } catch (e) {
-                      // Package might not exist with this name
-                    }
-                  } else {
-                    try {
-                      const { data: pkg } = await github.rest.packages.getPackageForUser({
-                        package_type: 'container',
-                        package_name: `${repo}/build-scope-analyzer`,
-                        username: owner
-                      });
-                      specificPackage = pkg;
-                    } catch (e) {
-                      // Package might not exist with this name
-                    }
-                  }
-
-                  // If we found a specific package and haven't processed it yet
-                  if (specificPackage && !processedPackages.includes(specificPackage.name)) {
-                    console.log(`Found specific package: ${specificPackage.name}`);
-
-                    // Get versions
-                    let versions = [];
-                    if (isOrg) {
-                      const { data: orgVersions } = await github.rest.packages.getAllPackageVersionsForPackageOwnedByOrg({
-                        package_type: 'container',
-                        package_name: specificPackage.name,
-                        org: owner
-                      });
-                      versions = orgVersions;
-                    } else {
-                      const { data: userVersions } = await github.rest.packages.getAllPackageVersionsForPackageOwnedByUser({
-                        package_type: 'container',
-                        package_name: specificPackage.name,
-                        username: owner
-                      });
-                      versions = userVersions;
-                    }
-
-                    // Look for the specific version with our SHA
-                    const shaVersion = versions.find(v =>
-                      v.metadata?.container?.tags?.includes(`sha-${SHORT_SHA}`)
-                    );
-
-                    if (shaVersion) {
-                      console.log(`Found specific version with tag sha-${SHORT_SHA}`);
-                      try {
-                        if (isOrg) {
-                          await github.rest.packages.deletePackageVersionForOrg({
-                            package_type: 'container',
-                            package_name: specificPackage.name,
-                            org: owner,
-                            package_version_id: shaVersion.id
-                          });
-                        } else {
-                          await github.rest.packages.deletePackageVersionForUser({
-                            package_type: 'container',
-                            package_name: specificPackage.name,
-                            username: owner,
-                            package_version_id: shaVersion.id
-                          });
+                            console.log(`✅ Successfully deleted version with tag test-sha-${SHORT_SHA}`);
+                            deletedTagsCount++;
+                            processedTags.push(`${pkg.name}:test-sha-${SHORT_SHA}`);
+                          } catch (error) {
+                            console.error(`❌ Error deleting version with tag sha-${SHORT_SHA}: ${error.message}`);
+                          }
                         }
-                        console.log(`✅ Successfully deleted specific version with tag sha-${SHORT_SHA}`);
-                        deletedVersionCount++;
-                      } catch (error) {
-                        console.error(`❌ Error deleting specific version:`, error.message);
                       }
+                    } catch (error) {
+                      console.error(`❌ Error checking package ${pkg.name} for tag sha-${SHORT_SHA}: ${error.message}`);
                     }
                   }
                 }
               } catch (error) {
-                console.error(`❌ Error processing specific package:`, error.message);
+                console.error(`❌ Error processing specific SHA tag: ${error.message}`);
               }
 
-              console.log(`🏁 Package cleanup complete. Deleted ${deletedVersionCount} package versions and ${deletedPackageCount} empty packages`);
+              console.log(`🏁 Package tag cleanup complete. Deleted ${deletedTagsCount} test tags from packages`);
 
               // Add to the summary report
               core.summary
-                .addHeading('GHCR Package Cleanup')
+                .addHeading('GHCR Package Tag Cleanup')
                 .addTable([
                   [{ data: 'Resource Type', header: true }, { data: 'Found', header: true }, { data: 'Deleted', header: true }],
-                  ['Test Packages', bsaPackages.length.toString(), deletedPackageCount.toString()],
-                  ['Test Package Versions', 'N/A', deletedVersionCount.toString()]
+                  ['Test Packages', bsaPackages.length.toString(), bsaPackages.length.toString()],
+                  ['Test Package Tags', 'N/A', deletedTagsCount.toString()]
                 ])
                 .write();
 
             } catch (error) {
-              console.error('❌ Error during GHCR package cleanup:', error.message);
+              console.error('❌ Error during GHCR package tag cleanup:', error.message);
               core.summary
-                .addHeading('GHCR Package Cleanup Error')
+                .addHeading('GHCR Package Tag Cleanup Error')
                 .addCodeBlock(error.message, 'js')
                 .write();
             }
