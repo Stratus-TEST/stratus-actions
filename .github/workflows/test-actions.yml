@@ -264,7 +264,7 @@ jobs:
             -v "$(pwd):/github/workspace" \
             -e GITHUB_WORKSPACE=/github/workspace \
             ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA \
-            --root-path /github/workspace --comparison-ref test-base --include-pattern 'src/helloworld/*' --output-format json > matrix-include.json
+            --root-path /github/workspace --comparison-ref test-base --include-pattern 'src/helloworld' --output-format json > matrix-include.json
           echo "matrix=$(cat matrix-include.json | jq -c .)" >> $GITHUB_OUTPUT
 
       - name: Verify Include Pattern Results

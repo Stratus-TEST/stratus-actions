@@ -1,19 +1,25 @@
-# Build Scope A| Input | Description ```yaml
+# Build Scope Analyzer
 
+## Quick Start
+
+```yaml
 - name: Analyze Build Scope
   id: analyze
   uses: HafslundEcoVannkraft/stratus-actions/build-scope-analyzer@v1
   with:
-  include-pattern: "src" # Include paths containing "src"
-  exclude-pattern: "test" # Exclude paths containing "test"
-  comparison_ref: "main" # Optional: compare against specific ref
+    include-pattern: "src" # Include paths containing "src"
+    exclude-pattern: "test" # Exclude paths containing "test"
+    comparison_ref: "main" # Optional: compare against specific ref
+```
 
-````| Default                   |
-| ----------------- | -------------------------------------------------------------- | ------------------------- |
-| `root-path`       | Root path to search for changes (defaults to GITHUB_WORKSPACE) | `${{ github.workspace }}` |
-| `include-pattern` | Pattern for paths to include (substring matching, e.g., `src`) | `*`                       |
+## Configuration Options
+
+| Input             | Description                                                     | Default                   |
+| ----------------- | --------------------------------------------------------------- | ------------------------- |
+| `root-path`       | Root path to search for changes (defaults to GITHUB_WORKSPACE)  | `${{ github.workspace }}` |
+| `include-pattern` | Pattern for paths to include (substring matching, e.g., `src`)  | `*`                       |
 | `exclude-pattern` | Pattern for paths to exclude (substring matching, e.g., `test`) | `""`                      |
-| `comparison_ref`  | Git ref to compare against (defaults to automatic detection)   | `""`                      |r
+| `comparison_ref`  | Git ref to compare against (defaults to automatic detection)    | `""`                      |
 
 ## Overview
 
@@ -41,9 +47,33 @@ Both `include-pattern` and `exclude-pattern` use **substring matching**:
 
 - **Include pattern**: Only paths containing this substring will be included
 - **Exclude pattern**: Paths containing this substring will be excluded
+- **Exclude takes precedence**: If a path matches both include and exclude patterns, it will be excluded
 - **Examples**:
   - `include-pattern: "src"` → includes paths like `src/app1`, `my-src/app2`
   - `exclude-pattern: "test"` → excludes paths like `test/app`, `src/test-app`
+
+**Example with pattern overlap:**
+
+For these paths:
+
+```
+src/app1/
+src/app2/test/
+src/app3/testfile.js
+```
+
+With these patterns:
+
+```yaml
+include-pattern: "src/app" # Match anything with 'src/app'
+exclude-pattern: "test" # Exclude anything with 'test'
+```
+
+The results would be:
+
+- ✅ `src/app1/` - Included (matches include-pattern, doesn't match exclude-pattern)
+- ❌ `src/app2/test/` - Excluded (matches both patterns, but exclude wins)
+- ❌ `src/app3/testfile.js` - Excluded (matches both patterns, but exclude wins)
 
 ## Git Reference Detection
 
@@ -71,7 +101,7 @@ The action automatically detects the appropriate git reference for comparison:
     include-pattern: "src" # Include paths containing "src"
     exclude-pattern: "test" # Exclude paths containing "test"
     comparison_ref: "main" # Optional: compare against specific ref
-````
+```
 
 ### Basic Usage Examples
 
@@ -89,6 +119,8 @@ The action automatically detects the appropriate git reference for comparison:
     include-pattern: "examples/corp/container_app"
 ```
 
+> **Note**: With substring matching, this will match any path containing this string, such as `my-examples/corp/container_app/subfolder`
+
 **Include apps but exclude tests:**
 
 ```yaml
@@ -97,6 +129,8 @@ The action automatically detects the appropriate git reference for comparison:
     include-pattern: "apps"
     exclude-pattern: "test"
 ```
+
+> **Note**: This will include any path containing "apps" and exclude any path containing "test", so `src/apps/myapp` would be included but `src/apps/test-app` would be excluded
 
 **Compare against specific branch:**
 

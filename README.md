@@ -180,6 +180,8 @@ A containerized action (Python, Docker) that analyzes git changes to determine w
 - Uses substring matching for both include and exclude patterns
 - `include-pattern: "src"` matches any path containing "src"
 - `exclude-pattern: "test"` excludes any path containing "test"
+- **Important**: Wildcards (`*`) are not supported - patterns are literal substrings
+- When a path matches both include and exclude patterns, the exclude pattern takes precedence
 
 **Git Reference Detection:**
 
