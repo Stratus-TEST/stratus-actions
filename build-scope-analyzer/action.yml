@@ -4,9 +4,9 @@ author: "Stratus Team"
 
 inputs:
   root-path:
-    description: "Root path to search for changes (defaults to GITHUB_WORKSPACE)"
+    description: "Root path to search for changes (defaults to /github/workspace)"
     required: false
-    default: ${{ github.workspace }}
+    default: /github/workspace
   include-pattern:
     description: 'Glob pattern for paths to include (e.g., "apps/*")'
     required: false
