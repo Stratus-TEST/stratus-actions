@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.scope.outputs.matrix }}
-      ref: ${{ steps.scope.outputs.ref }}
+      comparison_ref: ${{ steps.scope.outputs.comparison_ref }}
     steps:
       - uses: actions/checkout@v4
         with:

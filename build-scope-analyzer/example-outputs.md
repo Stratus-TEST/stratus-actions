@@ -77,7 +77,7 @@ apps/
     "has_updates": true,
     "has_deletions": false
   },
-  "ref": "origin/main"
+  "comparison_ref": "origin/main"
 }
 ```
 
@@ -85,7 +85,7 @@ apps/
 
 ```
 matrix={...see above...}
-ref=origin/main
+comparison_ref=origin/main
 ```
 
 ## Scenario 2: Multi-Container App
@@ -180,7 +180,7 @@ apps/
     "has_updates": true,
     "has_deletions": false
   },
-  "ref": "HEAD~1"
+  "comparison_ref": "HEAD~1"
 }
 ```
 
@@ -259,7 +259,7 @@ apps/
     "has_updates": true,
     "has_deletions": true
   },
-  "ref": "HEAD~1"
+  "comparison_ref": "HEAD~1"
 }
 ```
 
@@ -313,7 +313,7 @@ apps/
     "has_updates": false,
     "has_deletions": false
   },
-  "ref": "HEAD~1"
+  "comparison_ref": "HEAD~1"
 }
 ```
 
@@ -353,7 +353,7 @@ apps/
     "has_updates": false,
     "has_deletions": true
   },
-  "ref": "HEAD~1"
+  "comparison_ref": "HEAD~1"
 }
 ```
 
@@ -399,7 +399,7 @@ apps/
     "has_updates": false,
     "has_deletions": false
   },
-  "ref": "origin/main"
+  "comparison_ref": "origin/main"
 }
 ```
 
@@ -499,7 +499,7 @@ apps/
     "has_updates": true,
     "has_deletions": true
   },
-  "ref": "HEAD~1"
+  "comparison_ref": "HEAD~1"
 }
 ```
 
@@ -549,7 +549,7 @@ apps/
     "has_updates": true,
     "has_deletions": false
   },
-  "ref": "origin/main"
+  "comparison_ref": "origin/main"
 }
 ```
 
@@ -601,7 +601,7 @@ apps/
     "has_updates": false,
     "has_deletions": false
   },
-  "ref": ""
+  "comparison_ref": ""
 }
 ```
 
@@ -615,7 +615,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.analyze.outputs.matrix }}
-      ref: ${{ steps.analyze.outputs.ref }}
+      comparison_ref: ${{ steps.analyze.outputs.comparison_ref }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -659,7 +659,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.analyze.outputs.matrix }}
-      ref: ${{ steps.analyze.outputs.ref }}
+      comparison_ref: ${{ steps.analyze.outputs.comparison_ref }}
     steps:
       # ...same as above
 
@@ -743,10 +743,10 @@ jobs:
 
 ### Core Outputs
 
-| Output   | Type   | Description                                                |
-| -------- | ------ | ---------------------------------------------------------- |
-| `matrix` | JSON   | Contains all app and container data in a structured format |
-| `ref`    | String | Git reference used for comparison                          |
+| Output           | Type   | Description                                                |
+| ---------------- | ------ | ---------------------------------------------------------- |
+| `matrix`         | JSON   | Contains all app and container data in a structured format |
+| `comparison_ref` | String | Git reference used for comparison                          |
 
 ### Matrix Structure
 
@@ -768,7 +768,7 @@ interface Matrix {
     has_updates: boolean;
     has_deletions: boolean;
   };
-  ref: string;
+  comparison_ref: string;
 }
 ```
 

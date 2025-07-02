@@ -234,13 +234,26 @@ jobs:
             -v "$(pwd):/github/workspace" \
             -e GITHUB_WORKSPACE=/github/workspace \
             ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA \
-            --root-path /github/workspace --ref test-base --output-format json > matrix.json
+            --root-path /github/workspace --comparison-ref test-base --output-format json > matrix.json
           echo "matrix=$(cat matrix.json | jq -c .)" >> $GITHUB_OUTPUT
 
       - name: Verify Analysis Results
         run: |
           echo "Matrix: $(cat matrix.json)"
           cat matrix.json | jq .
+
+          # Verify that the output contains comparison_ref and not ref
+          if grep -q '"ref":' matrix.json; then
+            echo "❌ ERROR: Output still contains 'ref' instead of 'comparison_ref'"
+            exit 1
+          fi
+
+          if ! grep -q '"comparison_ref":' matrix.json; then
+            echo "❌ ERROR: Output does not contain 'comparison_ref'"
+            exit 1
+          fi
+
+          echo "✅ Verification passed: Output uses 'comparison_ref' properly"
 
       - name: Test with Include Pattern using container
         id: scope-include
@@ -251,13 +264,51 @@ jobs:
             -v "$(pwd):/github/workspace" \
             -e GITHUB_WORKSPACE=/github/workspace \
             ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA \
-            --root-path /github/workspace --ref test-base --include-pattern 'src/helloworld/*' --output-format json > matrix-include.json
+            --root-path /github/workspace --comparison-ref test-base --include-pattern 'src/helloworld/*' --output-format json > matrix-include.json
           echo "matrix=$(cat matrix-include.json | jq -c .)" >> $GITHUB_OUTPUT
 
       - name: Verify Include Pattern Results
         run: |
           echo "Matrix (include pattern): $(cat matrix-include.json)"
           cat matrix-include.json | jq .
+
+          # Verify that the output contains comparison_ref and not ref
+          if grep -q '"ref":' matrix-include.json; then
+            echo "❌ ERROR: Output still contains 'ref' instead of 'comparison_ref'"
+            exit 1
+          fi
+
+          if ! grep -q '"comparison_ref":' matrix-include.json; then
+            echo "❌ ERROR: Output does not contain 'comparison_ref'"
+            exit 1
+          fi
+
+          # Verify that the include pattern worked correctly
+          if ! jq -e '.apps.all | length > 0' matrix-include.json > /dev/null; then
+            echo "❌ ERROR: Include pattern didn't populate apps.all properly"
+            exit 1
+          fi
+
+          echo "✅ Verification passed: Output uses 'comparison_ref' and include pattern works properly"
+
+      - name: Cleanup Test Resources
+        if: always()
+        run: |
+          echo "🧹 Cleaning up test resources..."
+
+          # Clean up test branches
+          git checkout main || git checkout master || true
+          git branch -D test-base test-changes || true
+
+          # Remove test Docker images
+          SHORT_SHA=$(git rev-parse --short=7 HEAD)
+          ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          docker rmi ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA || true
+
+          # Clean up test files
+          rm -rf src/helloworld src/another-app matrix.json matrix-include.json || true
+
+          echo "✅ Cleanup completed"
 
   test-hello-world-docker:
     name: Test Hello World Docker Action

@@ -8,14 +8,14 @@ inputs:
     required: false
     default: /github/workspace
   include-pattern:
-    description: 'Glob pattern for paths to include (e.g., "apps/*")'
+    description: 'Pattern for paths to include (substring matching, e.g., "src")'
     required: false
     default: "*"
   exclude-pattern:
-    description: 'Glob pattern for paths to exclude (e.g., "docs/*")'
+    description: 'Pattern for paths to exclude (substring matching, e.g., "test")'
     required: false
     default: ""
-  ref:
+  comparison_ref:
     description: "Git ref to compare against (defaults to automatic detection)"
     required: false
     default: ""
@@ -23,31 +23,40 @@ inputs:
 outputs:
   matrix:
     description: |
-      Clean, focused JSON matrix structure with the following sub-properties:
+      Complete JSON matrix structure with all app and container information.
 
-      - matrix.apps: Container app deployment information
-        - matrix.apps.updated: Array of changed apps with app.yaml/app.yml
-        - matrix.apps.all: Array of all apps with app.yaml/app.yml
-        - matrix.apps.deleted: Array of deleted apps
-        - matrix.apps.has_updates: Boolean indicating if any apps were changed
-        - matrix.apps.has_deletions: Boolean indicating if any apps were deleted
+      Use jq to extract specific arrays from this output:
+      - .apps.updated: Changed apps that need building/deployment
+      - .apps.all: All discovered apps (changed + unchanged)
+      - .apps.deleted: Deleted apps that need cleanup
+      - .containers.updated: Changed containers that need building
+      - .containers.all: All discovered containers
+      - .containers.deleted: Deleted containers that need cleanup
 
-      - matrix.containers: Docker container build information
-        - matrix.containers.updated: Array of changed containers, each with:
-            - path: App folder path
-            - context: Docker build context (from @context or defaults to app folder)
-            - app_name: App name
-            - dockerfile: Dockerfile info (path, name, suffix)
-            - image_name: Image name for tagging
-            - container_name: Canonical container name
-        - matrix.containers.all: Array of all containers (same structure as above)
-        - matrix.containers.deleted: Array of deleted containers
-        - matrix.containers.has_updates: Boolean indicating if any containers were changed
-        - matrix.containers.has_deletions: Boolean indicating if any containers were deleted
+      Example extraction in workflow:
+        MATRIX_JSON='${{ steps.analyze.outputs.matrix }}'
+        echo "apps_updated=$(echo $MATRIX_JSON | jq -c '.apps.updated')" >> $GITHUB_OUTPUT
 
-      - matrix.ref: Git ref used for comparison
-  ref:
-    description: "Git ref used for comparison"
+      Full structure:
+      {
+        "apps": {
+          "updated": [...],     # Apps with changes
+          "all": [...],         # All discovered apps
+          "deleted": [...],     # Deleted apps
+          "has_updates": bool,  # True if any apps changed
+          "has_deletions": bool # True if any apps deleted
+        },
+        "containers": {
+          "updated": [...],     # Containers with changes
+          "all": [...],         # All discovered containers
+          "deleted": [...],     # Deleted containers
+          "has_updates": bool,  # True if any containers changed
+          "has_deletions": bool # True if any containers deleted
+        },
+        "comparison_ref": "origin/main" # Git ref used for comparison
+      }
+  comparison_ref:
+    description: "Git ref used for comparison (also available in matrix.comparison_ref)"
 
 runs:
   using: "docker"
@@ -59,5 +68,5 @@ runs:
     - "${{ inputs.include-pattern }}"
     - "--exclude-pattern"
     - "${{ inputs.exclude-pattern }}"
-    - "--ref"
-    - "${{ inputs.ref }}"
+    - "--comparison-ref"
+    - "${{ inputs.comparison_ref }}"
