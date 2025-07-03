@@ -232,6 +232,8 @@ jobs:
   test-build-scope-analyzer:
     name: Test Build Scope Analyzer
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
