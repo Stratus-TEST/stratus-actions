@@ -320,6 +320,6 @@ jobs:
         if: always()
         run: |
           ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          ORG=$(echo "$ORG_REPO" | cut -d'/' -f1)
-          PACKAGE="$ORG/build-scope-analyzer"
+          REPO=$(echo "$ORG_REPO" | cut -d'/' -f2)
+          PACKAGE="$REPO/build-scope-analyzer"
           ./scripts/cleanup-ghcr-tags.sh "$PACKAGE" "test-sha-*" delete
