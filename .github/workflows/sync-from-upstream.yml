@@ -20,10 +20,8 @@ name: Sync from Upstream
 # Note: The workflow will FAIL if it can't synchronize ALL branches, tags, and releases with upstream
 #
 # IMPORTANT: For the "Resource not accessible by integration" errors with tags:
-# 1. First try: Disable tag protection rules in GitHub repository settings (Settings → Branches → Tag protection rules)
-# 2. If that doesn't work: Create a Personal Access Token (PAT) with the 'repo' scope and add it to repository
-#    secrets as SYNC_PAT, then change 'github-token: ${{ secrets.GITHUB_TOKEN }}' to 'github-token: ${{ secrets.SYNC_PAT }}'
-#    in the tag sync step below
+# 1. First verify the upstream repository name is correct: UPSTREAM_REPO: stratus-test/stratus-actions
+# 2. Then try: Disable tag protection rules in GitHub repository settings (Settings → Branches → Tag protection rules)
 #
 # The workflow runs hourly by default and can also be triggered manually.
 
@@ -42,7 +40,7 @@ jobs:
     if: github.repository == 'hafslundecovannkraft/stratus-actions' # Only run on the forked repository
     env:
       FORK_REPO: hafslundecovannkraft/stratus-actions # This repository
-      UPSTREAM_REPO: stratusdata/stratus-actions # The upstream repository to sync from
+      UPSTREAM_REPO: stratus-test/stratus-actions # The upstream repository to sync from
     steps:
       - name: Checkout fork
         uses: actions/checkout@v4
@@ -127,6 +125,7 @@ jobs:
                 }
               } catch (branchError) {
                 console.error(`Error getting upstream branch ${branchName}:`, branchError.message);
+                console.error(`Make sure the upstream repository "${upstream}" exists and is accessible.`);
                 failedBranches.push(`${branchName} (upstream access failed)`);
               }
             }
@@ -135,14 +134,13 @@ jobs:
             if (failedBranches.length > 0) {
               const errorMessage = `Failed to sync the following branches with upstream: ${failedBranches.join(", ")}`;
               console.error(errorMessage);
+              console.error(`Double-check that the upstream repository "${upstream}" is correct and accessible.`);
               throw new Error(errorMessage);
             }
 
       - name: Sync tags from upstream with force update when needed
         uses: actions/github-script@v7
         with:
-          # If you encounter issues with protected tags, replace GITHUB_TOKEN with SYNC_PAT
-          # where SYNC_PAT is a secret containing a Personal Access Token with repo scope
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const upstream = process.env.UPSTREAM_REPO;
@@ -290,16 +288,7 @@ jobs:
               console.error(errorMessage);
               console.log(`
               ⚠️ TAG SYNC FAILURE ⚠️
-              Some tags could not be synced due to permission issues or tag protection.
-
-              To resolve this:
-              1. Disable tag protection rules in GitHub repository settings
-                 (Settings → Branches → Tag protection rules)
-              2. OR: Use a Personal Access Token (PAT) with 'repo' scope by:
-                 - Generate a PAT at https://github.com/settings/tokens with 'repo' scope
-                 - Add it to repository secrets as SYNC_PAT
-                 - Update this workflow to use SYNC_PAT instead of GITHUB_TOKEN
-                 - Change github-token parameter in this workflow file to use the SYNC_PAT secret
+              Some tags could not be synced verify the upstream repository name is correct: ${upstream}
               `);
               throw new Error(errorMessage);
             }
