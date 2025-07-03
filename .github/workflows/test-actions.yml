@@ -318,4 +318,6 @@ jobs:
 
       - name: Cleanup GHCR Test Tags
         if: always()
-        run: ./scripts/cleanup-ghcr-tags.sh ${{ github.repository }} "test-sha-*" delete
+        run: |
+          ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          ./scripts/cleanup-ghcr-tags.sh "$ORG_REPO" "test-sha-*" delete
