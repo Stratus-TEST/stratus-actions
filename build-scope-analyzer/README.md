@@ -1,5 +1,26 @@
 # Build Scope Analyzer
 
+## Quick Start
+
+```yaml
+- name: Analyze Build Scope
+  id: analyze
+  uses: HafslundEcoVannkraft/stratus-actions/build-scope-analyzer@v1
+  with:
+    include-pattern: "src" # Include paths containing "src"
+    exclude-pattern: "test" # Exclude paths containing "test"
+    comparison_ref: "main" # Optional: compare against specific ref
+```
+
+## Configuration Options
+
+| Input             | Description                                                     | Default                   |
+| ----------------- | --------------------------------------------------------------- | ------------------------- |
+| `root-path`       | Root path to search for changes (defaults to GITHUB_WORKSPACE)  | `${{ github.workspace }}` |
+| `include-pattern` | Pattern for paths to include (substring matching, e.g., `src`)  | `*`                       |
+| `exclude-pattern` | Pattern for paths to exclude (substring matching, e.g., `test`) | `""`                      |
+| `comparison_ref`  | Git ref to compare against (defaults to automatic detection)    | `""`                      |
+
 ## Overview
 
 Build Scope Analyzer is a GitHub Action and CLI tool that analyzes changes in a git repository to determine which applications and containers need to be built, deployed, or cleaned up. It is designed for monorepos and multi-app repositories, especially those using containerized applications.
@@ -13,33 +34,114 @@ Build Scope Analyzer is a GitHub Action and CLI tool that analyzes changes in a 
 
 ## Inputs
 
-| Input             | Description                                                    | Default                   |
-| ----------------- | -------------------------------------------------------------- | ------------------------- |
-| `root-path`       | Root path to search for changes (defaults to GITHUB_WORKSPACE) | `${{ github.workspace }}` |
-| `include-pattern` | Glob pattern for paths to include (e.g., `apps/*`)             | `*`                       |
-| `exclude-pattern` | Glob pattern for paths to exclude (e.g., `docs/*`)             | `""`                      |
-| `ref`             | Git ref to compare against (defaults to automatic detection)   | `""`                      |
+| Input             | Description                                                     | Default                   |
+| ----------------- | --------------------------------------------------------------- | ------------------------- |
+| `root-path`       | Root path to search for changes (defaults to GITHUB_WORKSPACE)  | `${{ github.workspace }}` |
+| `include-pattern` | Pattern for paths to include (substring matching, e.g., `src`)  | `*`                       |
+| `exclude-pattern` | Pattern for paths to exclude (substring matching, e.g., `test`) | `""`                      |
+| `comparison_ref`  | Git ref to compare against (defaults to automatic detection)    | `""`                      |
+
+## Pattern Matching
+
+Both `include-pattern` and `exclude-pattern` use **substring matching**:
+
+- **Include pattern**: Only paths containing this substring will be included
+- **Exclude pattern**: Paths containing this substring will be excluded
+- **Exclude takes precedence**: If a path matches both include and exclude patterns, it will be excluded
+- **Examples**:
+  - `include-pattern: "src"` → includes paths like `src/app1`, `my-src/app2`
+  - `exclude-pattern: "test"` → excludes paths like `test/app`, `src/test-app`
+
+**Example with pattern overlap:**
+
+For these paths:
+
+```
+src/app1/
+src/app2/test/
+src/app3/testfile.js
+```
+
+With these patterns:
+
+```yaml
+include-pattern: "src/app" # Match anything with 'src/app'
+exclude-pattern: "test" # Exclude anything with 'test'
+```
+
+The results would be:
+
+- ✅ `src/app1/` - Included (matches include-pattern, doesn't match exclude-pattern)
+- ❌ `src/app2/test/` - Excluded (matches both patterns, but exclude wins)
+- ❌ `src/app3/testfile.js` - Excluded (matches both patterns, but exclude wins)
+
+## Git Reference Detection
+
+The action automatically detects the appropriate git reference for comparison:
+
+- **Push events**: Compares against `HEAD~1` (previous commit)
+- **Pull Request events**: Compares against the PR base branch (`origin/{base_ref}`)
+- **Manual override**: Use the `comparison_ref` input to specify a custom comparison reference
+- **Workflow dispatch**: No comparison by default (useful for testing)
 
 ## Outputs
 
-| Output   | Description                                       |
-| -------- | ------------------------------------------------- |
-| `matrix` | JSON matrix structure with all app/container data |
-| `ref`    | Git ref used for comparison                       |
+| Output           | Description                                       |
+| ---------------- | ------------------------------------------------- |
+| `matrix`         | JSON matrix structure with all app/container data |
+| `comparison_ref` | Git ref used for comparison                       |
 
 ## Usage as a GitHub Action
 
 ```yaml
 - name: Analyze Build Scope
   id: analyze
-  uses: HafslundEcoVannkraft/stratus-actions/build-scope-analyzer@v1.0.0
+  uses: HafslundEcoVannkraft/stratus-actions/build-scope-analyzer@v1
   with:
-    root-path: ${{ github.workspace }}
-    include-pattern: "apps/*"
-    exclude-pattern: "tests/*"
+    include-pattern: "src" # Include paths containing "src"
+    exclude-pattern: "test" # Exclude paths containing "test"
+    comparison_ref: "main" # Optional: compare against specific ref
 ```
 
-- The action outputs a `matrix` JSON object with all changed, all, and deleted apps/containers, and the `ref` used for comparison.
+### Basic Usage Examples
+
+**Include everything (default):**
+
+```yaml
+- uses: HafslundEcoVannkraft/stratus-actions/build-scope-analyzer@v1
+```
+
+**Filter to specific directory:**
+
+```yaml
+- uses: HafslundEcoVannkraft/stratus-actions/build-scope-analyzer@v1
+  with:
+    include-pattern: "examples/corp/container_app"
+```
+
+> **Note**: With substring matching, this will match any path containing this string, such as `my-examples/corp/container_app/subfolder`
+
+**Include apps but exclude tests:**
+
+```yaml
+- uses: HafslundEcoVannkraft/stratus-actions/build-scope-analyzer@v1
+  with:
+    include-pattern: "apps"
+    exclude-pattern: "test"
+```
+
+> **Note**: This will include any path containing "apps" and exclude any path containing "test", so `src/apps/myapp` would be included but `src/apps/test-app` would be excluded
+
+**Compare against specific branch:**
+
+```yaml
+- uses: HafslundEcoVannkraft/stratus-actions/build-scope-analyzer@v1
+  with:
+    include-pattern: "src"
+    comparison_ref: "main"
+```
+
+- The action outputs a `matrix` JSON object with all changed, all, and deleted apps/containers, and the `comparison_ref` used for comparison.
 - See the [example-workflow.yml](./example-workflow.yml) for a full pipeline example.
 
 ## Usage as a Docker CLI Tool
@@ -89,7 +191,7 @@ The action outputs a matrix with the following structure:
     "has_updates": true,
     "has_deletions": false
   },
-  "ref": "origin/main"
+  "comparison_ref": "origin/main"
 }
 ```
 
@@ -116,11 +218,55 @@ The action outputs a matrix with the following structure:
 ## Troubleshooting & FAQ
 
 - **Q: What happens if not run in a git repo?**
+
   - A: The action will warn and may not produce expected results. Use `--mock-git` for local testing.
+
 - **Q: How do I debug missing or unexpected changes?**
-  - A: Check the `ref` used for comparison and ensure your include/exclude patterns are correct.
+
+  - A: Check the `comparison_ref` used for comparison and ensure your include/exclude patterns are correct. Use debug mode in calling workflows.
+
+- **Q: Why are my `apps.all` and `containers.all` arrays empty?**
+
+  - A: This usually indicates a pattern matching issue. Ensure your `include-pattern` correctly matches your directory structure using substring matching.
+
+- **Q: How does pattern matching work?**
+
+  - A: Both include and exclude patterns use substring matching. `include-pattern: "src"` will match any path containing "src" anywhere in the path.
+
 - **Q: How do I use this in a fork or mirror repo?**
-  - A: Ensure you have access to the correct git history and set the `ref` input if needed.
+
+  - A: Ensure you have access to the correct git history and set the `comparison_ref` input if needed.
+
+- **Q: What's the difference between `updated` and `all` arrays?**
+  - A: `updated` contains only items that changed between commits, while `all` contains every discovered item regardless of changes.
+
+## Common Use Cases
+
+**CI/CD Optimization**: Use `updated` arrays to only build/deploy what changed:
+
+```yaml
+if: needs.analyze.outputs.apps_updated != '[]'
+strategy:
+  matrix:
+    app: ${{ fromJson(needs.analyze.outputs.apps_updated) }}
+```
+
+**Full Rebuild/Deploy**: Use `all` arrays when you need to process everything:
+
+```yaml
+strategy:
+  matrix:
+    app: ${{ fromJson(needs.analyze.outputs.apps_all) }}
+```
+
+**Cleanup**: Use `deleted` arrays to clean up removed resources:
+
+```yaml
+if: needs.analyze.outputs.apps_has_deletions == 'true'
+strategy:
+  matrix:
+    app: ${{ fromJson(needs.analyze.outputs.apps_deleted) }}
+```
 
 ## Versioning & Release
 

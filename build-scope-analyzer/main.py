@@ -11,7 +11,6 @@ import sys
 import json
 import subprocess
 import argparse
-import fnmatch
 import yaml
 import logging
 import re
@@ -23,10 +22,11 @@ from typing import List, Dict, Set, Optional, Tuple, Any
 class BuildScopeAnalyzer:
     """Analyzes git changes and generates strategy matrix output using file discovery"""
 
-    def __init__(self, root_path: str, include_pattern: str = '', exclude_pattern: str = '', mock_git: bool = False):
+    def __init__(self, root_path: str, include_pattern: str = '', exclude_pattern: str = '', comparison_ref: str = '', mock_git: bool = False):
         self.root_path = Path(root_path).resolve()
         self.include_pattern = self._normalize_pattern(include_pattern)
         self.exclude_pattern = exclude_pattern
+        self.comparison_ref = comparison_ref
         self.changed_files: Set[Path] = set()
         self.deleted_files: Set[Path] = set()
         self.renamed_files: Dict[Path, Path] = {}
@@ -70,6 +70,15 @@ class BuildScopeAnalyzer:
 
     def get_comparison_ref(self) -> Tuple[str, Optional[str]]:
         """Determine the reference to compare against"""
+        # If comparison_ref is explicitly provided, use it
+        if self.comparison_ref:
+            try:
+                commit_sha = self.run_git_command(['git', 'rev-parse', self.comparison_ref])
+                return self.comparison_ref, commit_sha
+            except:
+                logging.warning(f"Could not resolve provided comparison_ref '{self.comparison_ref}', falling back to automatic detection")
+
+        # Automatic detection based on event type
         event_type = self.get_event_type()
 
         if event_type == 'pull_request':
@@ -78,6 +87,7 @@ class BuildScopeAnalyzer:
         elif event_type == 'workflow_dispatch':
             return "", None
         else:
+            # Push events - compare against previous commit
             ref_name = "HEAD~1"
 
         try:
@@ -150,14 +160,14 @@ class BuildScopeAnalyzer:
         """Check if path should be included based on patterns"""
         path_str = str(path)
 
-        # Check include pattern
+        # Check include pattern - pattern should be part of the path
         if self.include_pattern:
-            if not fnmatch.fnmatch(path_str, self.include_pattern):
+            if self.include_pattern not in path_str:
                 return False
 
-        # Check exclude pattern
+        # Check exclude pattern - pattern should be part of the path
         if self.exclude_pattern:
-            if fnmatch.fnmatch(path_str, self.exclude_pattern):
+            if self.exclude_pattern in path_str:
                 return False
 
         return True
@@ -339,7 +349,7 @@ class BuildScopeAnalyzer:
                 'has_updates': len(updated_containers) > 0,
                 'has_deletions': len(deleted_containers) > 0
             },
-            'ref': ref_name
+            'comparison_ref': ref_name
         }
 
     def analyze_deletions(self, inventory: Dict[str, Dict]) -> Tuple[List[Dict], List[Dict]]:
@@ -445,7 +455,7 @@ def main():
                         help='Root path to search for changes')
     parser.add_argument('--include-pattern', help='Pattern for paths to include')
     parser.add_argument('--exclude-pattern', help='Pattern for paths to exclude')
-    parser.add_argument('--ref', help='Git ref to compare against')
+    parser.add_argument('--comparison-ref', help='Git ref to compare against')
     parser.add_argument('--output-format', choices=['json', 'github'], default='github',
                         help='Output format')
     parser.add_argument('--mock-git', action='store_true',
@@ -465,6 +475,7 @@ def main():
         root_path=args.root_path,
         include_pattern=args.include_pattern,
         exclude_pattern=args.exclude_pattern,
+        comparison_ref=args.comparison_ref,
         mock_git=args.mock_git
     )
 
@@ -476,10 +487,10 @@ def main():
         if github_output:
             with open(github_output, 'a') as f:
                 f.write(f"matrix={json.dumps(output)}\n")
-                f.write(f"ref={output['ref']}\n")
+                f.write(f"comparison_ref={output['comparison_ref']}\n")
         else:
             print(f"matrix={json.dumps(output)}")
-            print(f"ref={output['ref']}")
+            print(f"comparison_ref={output['comparison_ref']}")
     else:
         print(json.dumps(output, indent=2))
 

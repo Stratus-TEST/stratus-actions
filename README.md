@@ -80,15 +80,23 @@ Each action has its own documentation explaining its specific usage and configur
 To use an action from this repository, reference it in your workflow file with the following syntax:
 
 ```yaml
-uses: stratus-test/stratus-actions/[action-name]@v1.0.0
+uses: HafslundEcoVannkraft/stratus-actions/[action-name]@v1
 ```
 
 Replace:
 
 - `[action-name]` with the specific action folder name (e.g., `release`, `hello-world`, `hello-world-docker`, `build-scope-analyzer`)
-- `@v1.0.0` with the desired version tag
+- `@v1` with the desired version tag
 
-> **Note:** This repository is kept in sync with forks (e.g., HafslundEcoVannkraft) via automation, but all issues and PRs should be opened in the canonical `stratus-test` repository.
+**Example with Build Scope Analyzer:**
+
+```yaml
+- name: Analyze changes
+  uses: HafslundEcoVannkraft/stratus-actions/build-scope-analyzer@v1
+  with:
+    include-pattern: "src"
+    exclude-pattern: "test"
+```
 
 ## Available Actions
 
@@ -109,7 +117,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Say Hello
-        uses: stratus-test/stratus-actions/hello-world@v1.0.0
+        uses: HafslundEcoVannkraft/stratus-actions/hello-world@v1
 ```
 
 ### Hello World Docker Action
@@ -129,7 +137,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Say Hello (Docker)
-        uses: stratus-test/stratus-actions/hello-world-docker@v1.0.0
+        uses: HafslundEcoVannkraft/stratus-actions/hello-world-docker@v1
         with:
           who-to-greet: "Stratus Docker"
       - name: Print Docker Action Output
@@ -159,11 +167,27 @@ A containerized action (Python, Docker) that analyzes git changes to determine w
 
 **Key Features:**
 
-- 🔍 Analyzes git changes to identify modified directories
-- 📊 Generates GitHub Actions strategy matrix
-- 🗑️ Identifies deleted folders for cleanup
-- 🎯 Supports include/exclude patterns for fine-grained control
-- 🐳 Runs as a Docker container for consistent, isolated execution
+- 🔍 **Smart Change Detection**: Analyzes git diffs to identify modified directories
+- 📊 **Strategy Matrix Generation**: Creates GitHub Actions matrices for parallel builds and deployments
+- 🗑️ **Deletion Tracking**: Identifies deleted folders for cleanup operations
+- 🎯 **Flexible Pattern Matching**: Supports include/exclude patterns using substring matching
+- 🔄 **Multi-Event Support**: Handles push events, pull requests, and manual triggers with automatic git ref detection
+- 🐳 **Containerized Execution**: Runs as a Docker container for consistent, isolated execution
+- 📋 **Complete Discovery**: Provides both `updated` (changed) and `all` (discovered) arrays for maximum flexibility
+
+**Pattern Matching:**
+
+- Uses substring matching for both include and exclude patterns
+- `include-pattern: "src"` matches any path containing "src"
+- `exclude-pattern: "test"` excludes any path containing "test"
+- **Important**: Wildcards (`*`) are not supported - patterns are literal substrings
+- When a path matches both include and exclude patterns, the exclude pattern takes precedence
+
+**Git Reference Detection:**
+
+- **Push events**: Automatically compares against `HEAD~1`
+- **Pull requests**: Compares against PR base branch
+- **Manual override**: Use `comparison_ref` input for custom comparisons
 
 For detailed information about this action, see the [build-scope-analyzer action documentation](build-scope-analyzer/README.md).
 

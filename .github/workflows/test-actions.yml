@@ -159,27 +159,81 @@ jobs:
 
       - name: Delete Test Releases and Test Tags
         if: always()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            console.log('🧹 Cleaning up test releases and tags...');
+
+            try {
+              // List all releases in the repo
+              const { data: releases } = await github.rest.repos.listReleases({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                per_page: 100
+              });
+
+              // Filter and delete test releases
+              const testReleases = releases.filter(release => release.tag_name.startsWith('test-'));
+              console.log(`Found ${testReleases.length} test releases to delete`);
+
+              for (const release of testReleases) {
+                console.log(`Deleting release: ${release.tag_name}`);
+                try {
+                  await github.rest.repos.deleteRelease({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    release_id: release.id
+                  });
+                  console.log(`✅ Successfully deleted release: ${release.tag_name}`);
+                } catch (error) {
+                  console.error(`❌ Error deleting release ${release.tag_name}:`, error);
+                }
+              }
+
+              // List and delete test tags
+              const { data: refs } = await github.rest.git.listMatchingRefs({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: 'tags/test-'
+              });
+
+              console.log(`Found ${refs.length} test tags to delete`);
+
+              for (const ref of refs) {
+                const tagName = ref.ref.replace('refs/tags/', '');
+                console.log(`Deleting tag: ${tagName}`);
+                try {
+                  await github.rest.git.deleteRef({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ref: `tags/${tagName}`
+                  });
+                  console.log(`✅ Successfully deleted tag: ${tagName}`);
+                } catch (error) {
+                  console.error(`❌ Error deleting tag ${tagName}:`, error);
+                }
+              }
+
+              console.log('🏁 Test releases and tags cleanup completed');
+            } catch (error) {
+              console.error('❌ Error during cleanup:', error);
+            }
+
+      - name: Restore Original Action
+        if: always()
         run: |
-          # Delete all releases (draft or published) with tag starting with 'test-'
-          for tag in $(gh release list --limit 1000 --json tagName | jq -r '.[].tagName' | grep '^test-'); do
-            echo "Deleting release with tag: $tag"
-            gh release delete "$tag" --yes || true
-          done
-
-          # Delete all test tags (test-v*, test-latest, etc)
-          for tag in $(git tag -l 'test-*'); do
-            echo "Deleting test tag: $tag"
-            git push --delete origin "$tag" || true
-          done
-
           # Restore the original action
-          mv release/action.yml.bak release/action.yml || true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          if [ -f release/action.yml.bak ]; then
+            mv release/action.yml.bak release/action.yml
+            echo "✅ Restored original action.yml"
+          fi
 
   test-build-scope-analyzer:
     name: Test Build Scope Analyzer
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -217,13 +271,13 @@ jobs:
         run: |
           SHORT_SHA=$(git rev-parse --short=7 HEAD)
           ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          docker build -t ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA ./build-scope-analyzer
+          docker build -t ghcr.io/$ORG_REPO/build-scope-analyzer:test-sha-$SHORT_SHA ./build-scope-analyzer
 
       - name: Push Docker image to GHCR
         run: |
           SHORT_SHA=$(git rev-parse --short=7 HEAD)
           ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
-          docker push ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA
+          docker push ghcr.io/$ORG_REPO/build-scope-analyzer:test-sha-$SHORT_SHA
 
       - name: Analyze Build Scope (with changes) using container
         id: scope
@@ -233,14 +287,9 @@ jobs:
           docker run --rm \
             -v "$(pwd):/github/workspace" \
             -e GITHUB_WORKSPACE=/github/workspace \
-            ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA \
-            --root-path /github/workspace --ref test-base --output-format json > matrix.json
+            ghcr.io/$ORG_REPO/build-scope-analyzer:test-sha-$SHORT_SHA \
+            --root-path /github/workspace --comparison-ref test-base --output-format json > matrix.json
           echo "matrix=$(cat matrix.json | jq -c .)" >> $GITHUB_OUTPUT
-
-      - name: Verify Analysis Results
-        run: |
-          echo "Matrix: $(cat matrix.json)"
-          cat matrix.json | jq .
 
       - name: Test with Include Pattern using container
         id: scope-include
@@ -250,8 +299,8 @@ jobs:
           docker run --rm \
             -v "$(pwd):/github/workspace" \
             -e GITHUB_WORKSPACE=/github/workspace \
-            ghcr.io/$ORG_REPO/build-scope-analyzer:sha-$SHORT_SHA \
-            --root-path /github/workspace --ref test-base --include-pattern 'src/helloworld/*' --output-format json > matrix-include.json
+            ghcr.io/$ORG_REPO/build-scope-analyzer:test-sha-$SHORT_SHA \
+            --root-path /github/workspace --comparison-ref test-base --include-pattern 'src/helloworld' --output-format json > matrix-include.json
           echo "matrix=$(cat matrix-include.json | jq -c .)" >> $GITHUB_OUTPUT
 
       - name: Verify Include Pattern Results
@@ -259,18 +308,18 @@ jobs:
           echo "Matrix (include pattern): $(cat matrix-include.json)"
           cat matrix-include.json | jq .
 
-  test-hello-world-docker:
-    name: Test Hello World Docker Action
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+          # Verify that the include pattern worked correctly
+          if ! jq -e '.apps.all | length > 0' matrix-include.json > /dev/null; then
+            echo "❌ ERROR: Include pattern didn't populate apps.all properly"
+            exit 1
+          fi
 
-      - name: Test Hello World Docker Action
-        id: hello-docker
-        uses: ./hello-world-docker
-        with:
-          who-to-greet: "Stratus Docker"
+          echo "✅ Verification passed: Include pattern populated apps.all correctly"
 
-      - name: Print Docker Action Output
+      - name: Cleanup GHCR Test Tags
+        if: always()
         run: |
-          echo "Docker action time output: ${{ steps.hello-docker.outputs.time }}"
+          ORG_REPO=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          REPO=$(echo "$ORG_REPO" | cut -d'/' -f2)
+          PACKAGE="$REPO/build-scope-analyzer"
+          ./scripts/cleanup-ghcr-tags.sh "$PACKAGE" "test-sha-*" delete
