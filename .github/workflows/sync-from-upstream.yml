@@ -8,11 +8,10 @@ name: Sync from Upstream
 # 2. Syncs all tags to match upstream using GitHub API with force updates:
 #    - Creates new tags that don't exist in the fork
 #    - For existing tags pointing to different commits:
-#      - First checks if tag exists via API
-#      - Deletes existing tag
-#      - Creates new tag with the correct commit SHA
+#      - Attempts direct tag creation first
+#      - If creation fails and tag exists, deletes existing tag and recreates it
+#      - Falls back to direct update if deletion fails
 #    - FAILS the workflow if any tag can't be created or updated to match upstream
-#    - Note: The workflow will explicitly try to sync ALL tags, including 'v1' and 'latest'
 # 3. Mirrors all releases from upstream to the fork:
 #    - Creates new releases in the fork that exist in upstream
 #    - FAILS the workflow if any release can't be mirrored
@@ -22,6 +21,8 @@ name: Sync from Upstream
 # IMPORTANT: For the "Resource not accessible by integration" errors with tags:
 # 1. First verify the upstream repository name is correct: UPSTREAM_REPO: stratus-test/stratus-actions
 # 2. Then try: Disable tag protection rules in GitHub repository settings (Settings → Branches → Tag protection rules)
+# 3. For protected tags like 'v1' and 'latest': Create a Personal Access Token (PAT) with the 'repo' scope
+#    and add it to repository secrets as SYNC_PAT. The workflow will automatically use it if available.
 #
 # The workflow runs hourly by default and can also be triggered manually.
 
@@ -168,127 +169,122 @@ jobs:
               existingTagMap.set(tag.name, tag.commit.sha);
             });
 
-            // All tags are now considered critical - we'll fail the workflow if any tag can't be synced
-            // This list just helps identify common tags that might be protected
-            const commonProtectedTags = ['v1', 'latest'];
-
             // Create or update tags in the fork
             const failedTags = [];
 
             for (const tag of upstreamTags) {
-              // First check if tag exists in the repository via API
-              // This ensures we have accurate information about tag existence
-              let tagExists = false;
+              const tagName = tag.name;
+              const targetSha = tag.commit.sha;
+
+              // Check if tag already exists and matches upstream
+              if (existingTagMap.has(tagName) && existingTagMap.get(tagName) === targetSha) {
+                console.log(`Tag ${tagName} already matches upstream commit ${targetSha}`);
+                continue;
+              }
+
+              // Try to create or update the tag
+              let tagSyncSucceeded = false;
+
+              // First, try to create the tag directly
               try {
-                // Try to get the tag reference from GitHub
+                await github.rest.git.createRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: `refs/tags/${tagName}`,
+                  sha: targetSha
+                });
+                console.log(`Successfully created tag ${tagName} at commit ${targetSha}`);
+                tagSyncSucceeded = true;
+              } catch (createError) {
+                console.log(`Direct creation of tag ${tagName} failed: ${createError.message}`);
+
+                // If creation failed, check if the tag exists
+                let tagExists = false;
                 try {
-                  const { data: tagRef } = await github.rest.git.getRef({
+                  await github.rest.git.getRef({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
-                    ref: `tags/${tag.name}`
+                    ref: `tags/${tagName}`
                   });
                   tagExists = true;
-
-                  // Update our map with accurate information
-                  existingTagMap.set(tag.name, tagRef.object.sha);
+                  console.log(`Tag ${tagName} exists, will attempt delete and recreate`);
                 } catch (refError) {
-                  // If we get a 404, the tag doesn't exist
                   if (refError.status === 404) {
-                    tagExists = false;
+                    console.log(`Tag ${tagName} does not exist, creation failed for other reasons`);
                   } else {
-                    throw refError; // Re-throw other errors
+                    console.log(`Error checking tag ${tagName} existence: ${refError.message}`);
                   }
                 }
 
-                if (!tagExists) {
-                  // Case 1: Tag doesn't exist in fork, create it
-                  console.log(`Creating new tag ${tag.name} with commit ${tag.commit.sha}`);
+                // If tag exists, try to delete it and recreate
+                if (tagExists) {
                   try {
-                    await github.rest.git.createRef({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      ref: `refs/tags/${tag.name}`,
-                      sha: tag.commit.sha
-                    });
-                    console.log(`Successfully created tag: ${tag.name}`);
-                  } catch (error) {
-                    console.error(`Error creating tag ${tag.name}:`, error);
-                    failedTags.push(`${tag.name} (create failed)`);
-                  }
-                } else if (existingTagMap.get(tag.name) !== tag.commit.sha) {
-                  // Case 2: Tag exists but points to different commit SHA, update it
-                  console.log(`Tag ${tag.name} exists but points to different commit - attempting force update`);
-                  console.log(`  Current: ${existingTagMap.get(tag.name)}`);
-                  console.log(`  Upstream: ${tag.commit.sha}`);
-
-                  let updateSucceeded = false;
-
-                  // Step 1: Try to delete the existing tag
-                  try {
+                    // Delete the existing tag
                     await github.rest.git.deleteRef({
                       owner: context.repo.owner,
                       repo: context.repo.repo,
-                      ref: `tags/${tag.name}`
+                      ref: `tags/${tagName}`
                     });
+                    console.log(`Successfully deleted existing tag ${tagName}`);
 
-                    // Step 2: Create new tag at the correct commit
+                    // Now recreate the tag
                     try {
                       await github.rest.git.createRef({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
-                        ref: `refs/tags/${tag.name}`,
-                        sha: tag.commit.sha
+                        ref: `refs/tags/${tagName}`,
+                        sha: targetSha
                       });
-                      console.log(`Successfully force updated tag: ${tag.name} to commit ${tag.commit.sha}`);
-                      updateSucceeded = true;
-                    } catch (createError) {
-                      console.error(`Error creating tag ${tag.name} after deletion:`, createError.message);
+                      console.log(`Successfully recreated tag ${tagName} at commit ${targetSha}`);
+                      tagSyncSucceeded = true;
+                    } catch (recreateError) {
+                      console.error(`Failed to recreate tag ${tagName} after deletion: ${recreateError.message}`);
                     }
                   } catch (deleteError) {
-                    console.log(`Could not delete tag ${tag.name}: ${deleteError.message}`);
+                    console.error(`Failed to delete existing tag ${tagName}: ${deleteError.message}`);
 
-                    // If deletion fails, it could be due to branch protection rules
-                    // In some repositories, we might still want to try updating the reference directly
-                    console.log(`Attempting to update tag ${tag.name} directly without deletion...`);
-
+                    // As a last resort, try direct update
                     try {
-                      // Try to update the reference directly (may fail on protected tags)
                       await github.rest.git.updateRef({
                         owner: context.repo.owner,
                         repo: context.repo.repo,
-                        ref: `tags/${tag.name}`,
-                        sha: tag.commit.sha,
+                        ref: `tags/${tagName}`,
+                        sha: targetSha,
                         force: true
                       });
-                      console.log(`Successfully updated tag ${tag.name} directly to ${tag.commit.sha}`);
-                      updateSucceeded = true;
+                      console.log(`Successfully updated tag ${tagName} directly to ${targetSha}`);
+                      tagSyncSucceeded = true;
                     } catch (updateError) {
-                      console.error(`Error updating tag ${tag.name} directly:`, updateError.message);
-                      console.log(`Failed to update tag ${tag.name} - may require admin access or be protected`);
+                      console.error(`All methods failed for tag ${tagName}: ${updateError.message}`);
                     }
                   }
-
-                  if (!updateSucceeded) {
-                    console.log(`❌ Failed to update tag ${tag.name} to match upstream`);
-                    failedTags.push(`${tag.name} (update failed)`);
-                  }
-                } else {
-                  // Case 3: Tag exists and already matches upstream
-                  console.log(`Tag ${tag.name} already matches upstream commit ${tag.commit.sha}`);
                 }
-              } catch (error) {
-                console.error(`Error processing tag ${tag.name}:`, error.message);
-                failedTags.push(`${tag.name} (processing error: ${error.message})`);
+              }
+
+              // Track failed tags
+              if (!tagSyncSucceeded) {
+                failedTags.push(`${tagName} (sync failed)`);
+                console.log(`❌ Failed to sync tag ${tagName} with upstream`);
               }
             }
 
-            // Fail the workflow for ALL tags including protected tags
+            // Fail the workflow if any tags couldn't be synced
             if (failedTags.length > 0) {
               const errorMessage = `Failed to sync the following tags with upstream: ${failedTags.join(", ")}`;
               console.error(errorMessage);
               console.log(`
               ⚠️ TAG SYNC FAILURE ⚠️
-              Some tags could not be synced verify the upstream repository name is correct: ${upstream}
+              Some tags could not be synced despite attempting to delete and recreate them.
+
+              This is likely due to:
+              1. Tag protection rules in GitHub repository settings
+              2. Insufficient GitHub Actions token permissions
+              3. Repository access restrictions
+
+              To resolve:
+              - Check repository settings for tag protection rules
+              - Verify the upstream repository ${upstream} is accessible
+              - Consider if these tags require manual intervention
               `);
               throw new Error(errorMessage);
             }
