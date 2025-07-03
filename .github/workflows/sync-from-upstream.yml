@@ -1,10 +1,19 @@
 name: Sync from Upstream
 
 # This workflow synchronizes a fork with its upstream repository:
-# 1. Syncs the main branch to match upstream using GitHub API
-# 2. Syncs all tags to match upstream using GitHub API
-# 3. Mirrors all releases from upstream to the fork
+# 1. Syncs branches (currently main) to match upstream using GitHub API:
+#    - Force updates existing branches to match upstream
+#    - Creates branches that don't exist in the fork
+#    - FAILS the workflow if any branch can't be created or updated to match upstream
+# 2. Syncs all tags to match upstream using GitHub API with force updates:
+#    - Creates new tags that don't exist in the fork
+#    - Force updates existing tags that point to different commits (using multiple methods)
+#    - FAILS the workflow if any tag can't be created or updated to match upstream
+# 3. Mirrors all releases from upstream to the fork:
+#    - Creates new releases in the fork that exist in upstream
+#    - FAILS the workflow if any release can't be mirrored
 #
+# Note: The workflow will fail if it can't synchronize ALL branches, tags, and releases with upstream
 # The workflow runs hourly by default and can also be triggered manually.
 
 on:
@@ -34,55 +43,91 @@ jobs:
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Sync branch from upstream using GitHub API
+      - name: Sync branches from upstream using GitHub API
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const upstream = process.env.UPSTREAM_REPO;
             const [upstreamOwner, upstreamRepo] = upstream.split('/');
+            const branchesToSync = ['main']; // List of branches to sync with upstream
+            const failedBranches = [];
 
-            console.log(`Syncing from upstream: ${upstream} to ${context.repo.owner}/${context.repo.repo}`);
+            console.log(`Syncing branches from upstream: ${upstream} to ${context.repo.owner}/${context.repo.repo}`);
 
-            // Get the latest commit SHA from upstream main branch
-            const { data: upstreamBranch } = await github.rest.repos.getBranch({
-              owner: upstreamOwner,
-              repo: upstreamRepo,
-              branch: 'main'
-            });
+            for (const branchName of branchesToSync) {
+              console.log(`Syncing branch: ${branchName}`);
 
-            const upstreamSha = upstreamBranch.commit.sha;
-            console.log(`Latest upstream commit SHA: ${upstreamSha}`);
+              try {
+                // Get the latest commit SHA from upstream branch
+                const { data: upstreamBranch } = await github.rest.repos.getBranch({
+                  owner: upstreamOwner,
+                  repo: upstreamRepo,
+                  branch: branchName
+                });
 
-            try {
-              // Get current reference to update
-              const { data: reference } = await github.rest.git.getRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: 'heads/main'
-              });
+                const upstreamSha = upstreamBranch.commit.sha;
+                console.log(`Latest upstream commit SHA for ${branchName}: ${upstreamSha}`);
 
-              if (reference.object.sha === upstreamSha) {
-                console.log('Already up to date with upstream.');
-                return;
+                // Get current reference to update
+                try {
+                  const { data: reference } = await github.rest.git.getRef({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ref: `heads/${branchName}`
+                  });
+
+                  if (reference.object.sha === upstreamSha) {
+                    console.log(`Branch ${branchName} already up to date with upstream.`);
+                    continue; // Skip to next branch
+                  }
+
+                  // Update reference to match upstream
+                  try {
+                    await github.rest.git.updateRef({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      ref: `heads/${branchName}`,
+                      sha: upstreamSha,
+                      force: true
+                    });
+                    console.log(`Successfully updated ${branchName} branch to match upstream commit ${upstreamSha}`);
+                  } catch (updateError) {
+                    console.error(`Error updating branch ${branchName}:`, updateError.message);
+                    failedBranches.push(`${branchName} (update failed)`);
+                  }
+                } catch (refError) {
+                  console.error(`Error getting reference for branch ${branchName}:`, refError.message);
+
+                  // If the branch doesn't exist, try to create it
+                  console.log(`Attempting to create branch ${branchName}...`);
+                  try {
+                    await github.rest.git.createRef({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      ref: `refs/heads/${branchName}`,
+                      sha: upstreamSha
+                    });
+                    console.log(`Successfully created branch ${branchName} at commit ${upstreamSha}`);
+                  } catch (createError) {
+                    console.error(`Error creating branch ${branchName}:`, createError.message);
+                    failedBranches.push(`${branchName} (create failed)`);
+                  }
+                }
+              } catch (branchError) {
+                console.error(`Error getting upstream branch ${branchName}:`, branchError.message);
+                failedBranches.push(`${branchName} (upstream access failed)`);
               }
-
-              // Update reference to match upstream
-              await github.rest.git.updateRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: 'heads/main',
-                sha: upstreamSha,
-                force: true
-              });
-
-              console.log(`Successfully updated main branch to match upstream commit ${upstreamSha}`);
-            } catch (error) {
-              console.error('Error syncing branch:', error);
-              throw error;
             }
 
-      - name: Force Sync tags from upstream using GitHub API
+            // Fail the workflow if any branches couldn't be synced
+            if (failedBranches.length > 0) {
+              const errorMessage = `Failed to sync the following branches with upstream: ${failedBranches.join(", ")}`;
+              console.error(errorMessage);
+              throw new Error(errorMessage);
+            }
+
+      - name: Sync tags from upstream with force update when needed
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -113,9 +158,12 @@ jobs:
             });
 
             // Create or update tags in the fork
+            const failedTags = [];
+
             for (const tag of upstreamTags) {
               if (!existingTagMap.has(tag.name)) {
-                console.log(`Creating tag ${tag.name} with commit ${tag.commit.sha}`);
+                // Case 1: Tag doesn't exist in fork, create it
+                console.log(`Creating new tag ${tag.name} with commit ${tag.commit.sha}`);
                 try {
                   await github.rest.git.createRef({
                     owner: context.repo.owner,
@@ -126,31 +174,76 @@ jobs:
                   console.log(`Successfully created tag: ${tag.name}`);
                 } catch (error) {
                   console.error(`Error creating tag ${tag.name}:`, error);
-                  // Continue with other tags even if one fails
+                  failedTags.push(`${tag.name} (create failed)`);
                 }
               } else if (existingTagMap.get(tag.name) !== tag.commit.sha) {
-                console.log(`Updating tag ${tag.name} to match upstream (force sync)`);
+                // Case 2: Tag exists but points to different commit SHA, update it
+                console.log(`Tag ${tag.name} exists but points to different commit - attempting force update`);
+                console.log(`  Current: ${existingTagMap.get(tag.name)}`);
+                console.log(`  Upstream: ${tag.commit.sha}`);
+
+                let updateSucceeded = false;
+
+                // Step 1: Try to delete the existing tag
                 try {
-                  // Delete existing tag first
                   await github.rest.git.deleteRef({
                     owner: context.repo.owner,
                     repo: context.repo.repo,
                     ref: `tags/${tag.name}`
                   });
 
-                  // Create new tag at the correct commit
-                  await github.rest.git.createRef({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    ref: `refs/tags/${tag.name}`,
-                    sha: tag.commit.sha
-                  });
-                  console.log(`Successfully force updated tag: ${tag.name} to commit ${tag.commit.sha}`);
-                } catch (error) {
-                  console.error(`Error updating tag ${tag.name}:`, error);
-                  // Continue with other tags even if one fails
+                  // Step 2: Create new tag at the correct commit
+                  try {
+                    await github.rest.git.createRef({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      ref: `refs/tags/${tag.name}`,
+                      sha: tag.commit.sha
+                    });
+                    console.log(`Successfully force updated tag: ${tag.name} to commit ${tag.commit.sha}`);
+                    updateSucceeded = true;
+                  } catch (createError) {
+                    console.error(`Error creating tag ${tag.name} after deletion:`, createError.message);
+                  }
+                } catch (deleteError) {
+                  console.log(`Could not delete tag ${tag.name}: ${deleteError.message}`);
+
+                  // If deletion fails, it could be due to branch protection rules
+                  // In some repositories, we might still want to try updating the reference directly
+                  console.log(`Attempting to update tag ${tag.name} directly without deletion...`);
+
+                  try {
+                    // Try to update the reference directly (may fail on protected tags)
+                    await github.rest.git.updateRef({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      ref: `tags/${tag.name}`,
+                      sha: tag.commit.sha,
+                      force: true
+                    });
+                    console.log(`Successfully updated tag ${tag.name} directly to ${tag.commit.sha}`);
+                    updateSucceeded = true;
+                  } catch (updateError) {
+                    console.error(`Error updating tag ${tag.name} directly:`, updateError.message);
+                    console.log(`Failed to update tag ${tag.name} - may require admin access or be protected`);
+                  }
                 }
+
+                if (!updateSucceeded) {
+                  console.log(`❌ Failed to update tag ${tag.name} to match upstream`);
+                  failedTags.push(`${tag.name} (update failed)`);
+                }
+              } else {
+                // Case 3: Tag exists and already matches upstream
+                console.log(`Tag ${tag.name} already matches upstream commit ${tag.commit.sha}`);
               }
+            }
+
+            // Fail the workflow if any tags couldn't be synced
+            if (failedTags.length > 0) {
+              const errorMessage = `Failed to sync the following tags with upstream: ${failedTags.join(", ")}`;
+              console.error(errorMessage);
+              throw new Error(errorMessage);
             }
 
       - name: Mirror releases from upstream
@@ -181,12 +274,17 @@ jobs:
               });
 
               console.log(`Found ${forkReleases.length} releases in fork repository`);
-              const forkTags = new Set(forkReleases.map(r => r.tag_name));
+              const forkReleases_map = new Map();
+              forkReleases.forEach(release => {
+                forkReleases_map.set(release.tag_name, release);
+              });
 
               // Mirror releases that don't exist in the fork
               let mirrored = 0;
+              const failedReleases = [];
+
               for (const release of upstreamReleases) {
-                if (!forkTags.has(release.tag_name)) {
+                if (!forkReleases_map.has(release.tag_name)) {
                   console.log(`Mirroring release: ${release.tag_name} - ${release.name}`);
                   try {
                     await github.rest.repos.createRelease({
@@ -202,13 +300,20 @@ jobs:
                     mirrored++;
                     console.log(`Successfully mirrored release: ${release.tag_name}`);
                   } catch (error) {
-                    console.error(`Error mirroring release ${release.tag_name}:`, error);
-                    // Continue with other releases even if one fails
+                    console.error(`Error mirroring release ${release.tag_name}:`, error.message);
+                    failedReleases.push(`${release.tag_name} (${error.message})`);
                   }
                 }
               }
 
-              console.log(`Sync complete. Mirrored ${mirrored} new releases.`);
+              // Fail the workflow if any releases couldn't be mirrored
+              if (failedReleases.length > 0) {
+                const errorMessage = `Failed to mirror the following releases: ${failedReleases.join(", ")}`;
+                console.error(errorMessage);
+                throw new Error(errorMessage);
+              }
+
+              console.log(`Sync complete. Successfully mirrored ${mirrored} new releases.`);
             } catch (error) {
               console.error('Error in release mirroring process:', error);
               throw error;
@@ -217,7 +322,7 @@ jobs:
       - name: Sync Summary
         run: |
           echo "## Repository Sync Summary" >> $GITHUB_STEP_SUMMARY
-          echo "✅ **Branch Sync**: Main branch synchronized with upstream" >> $GITHUB_STEP_SUMMARY
+          echo "✅ **Branch Sync**: All branches synchronized with upstream" >> $GITHUB_STEP_SUMMARY
           echo "✅ **Tags Sync**: All tags synchronized with upstream" >> $GITHUB_STEP_SUMMARY
           echo "✅ **Release Sync**: All releases mirrored from upstream" >> $GITHUB_STEP_SUMMARY
           echo "🔄 Synchronized with upstream: $UPSTREAM_REPO" >> $GITHUB_STEP_SUMMARY
