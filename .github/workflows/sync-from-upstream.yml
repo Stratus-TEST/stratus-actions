@@ -6,12 +6,13 @@ name: Sync from Upstream
 #    - Creates branches that don't exist in the fork
 #    - FAILS the workflow if any branch can't be created or updated to match upstream
 # 2. Syncs all tags to match upstream using GitHub API with force updates:
+#    - Deletes any tags in fork that don't exist in upstream (orphaned tags)
 #    - Creates new tags that don't exist in the fork
 #    - For existing tags pointing to different commits:
 #      - Attempts direct tag creation first
 #      - If creation fails and tag exists, deletes existing tag and recreates it
 #      - Falls back to direct update if deletion fails
-#    - FAILS the workflow if any tag can't be created or updated to match upstream
+#    - FAILS the workflow if any tag can't be created, updated, or deleted to match upstream
 # 3. Mirrors all releases from upstream to the fork:
 #    - Creates new releases in the fork that exist in upstream
 #    - FAILS the workflow if any release can't be mirrored
@@ -169,6 +170,35 @@ jobs:
               existingTagMap.set(tag.name, tag.commit.sha);
             });
 
+            // Create a set of upstream tag names for comparison
+            const upstreamTagNames = new Set(upstreamTags.map(tag => tag.name));
+
+            // First, delete any tags in fork that don't exist in upstream
+            const deletedTags = [];
+            const failedDeletes = [];
+
+            for (const [tagName, tagSha] of existingTagMap) {
+              if (!upstreamTagNames.has(tagName)) {
+                console.log(`Tag ${tagName} exists in fork but not in upstream - deleting it`);
+                try {
+                  await github.rest.git.deleteRef({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ref: `tags/${tagName}`
+                  });
+                  console.log(`Successfully deleted orphaned tag: ${tagName}`);
+                  deletedTags.push(tagName);
+                } catch (deleteError) {
+                  console.error(`Failed to delete orphaned tag ${tagName}: ${deleteError.message}`);
+                  failedDeletes.push(`${tagName} (delete failed)`);
+                }
+              }
+            }
+
+            if (deletedTags.length > 0) {
+              console.log(`Deleted ${deletedTags.length} orphaned tags: ${deletedTags.join(", ")}`);
+            }
+
             // Create or update tags in the fork
             const failedTags = [];
 
@@ -268,13 +298,14 @@ jobs:
               }
             }
 
-            // Fail the workflow if any tags couldn't be synced
-            if (failedTags.length > 0) {
-              const errorMessage = `Failed to sync the following tags with upstream: ${failedTags.join(", ")}`;
+            // Fail the workflow if any tags couldn't be synced or deleted
+            const allFailures = [...failedTags, ...failedDeletes];
+            if (allFailures.length > 0) {
+              const errorMessage = `Failed to sync tags with upstream: ${allFailures.join(", ")}`;
               console.error(errorMessage);
               console.log(`
               ⚠️ TAG SYNC FAILURE ⚠️
-              Some tags could not be synced despite attempting to delete and recreate them.
+              Some tags could not be synced or deleted despite attempting multiple methods.
 
               This is likely due to:
               1. Tag protection rules in GitHub repository settings
