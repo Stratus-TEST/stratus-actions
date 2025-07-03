@@ -82,7 +82,7 @@ jobs:
               throw error;
             }
 
-      - name: Sync tags from upstream using GitHub API
+      - name: Force Sync tags from upstream using GitHub API
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -106,11 +106,15 @@ jobs:
               per_page: 100
             });
 
-            const existingTags = new Set(forkTags.map(tag => tag.name));
+            // Convert fork tags to a map of name -> commit SHA for easy lookup
+            const existingTagMap = new Map();
+            forkTags.forEach(tag => {
+              existingTagMap.set(tag.name, tag.commit.sha);
+            });
 
-            // Create missing tags in the fork
+            // Create or update tags in the fork
             for (const tag of upstreamTags) {
-              if (!existingTags.has(tag.name)) {
+              if (!existingTagMap.has(tag.name)) {
                 console.log(`Creating tag ${tag.name} with commit ${tag.commit.sha}`);
                 try {
                   await github.rest.git.createRef({
@@ -122,6 +126,28 @@ jobs:
                   console.log(`Successfully created tag: ${tag.name}`);
                 } catch (error) {
                   console.error(`Error creating tag ${tag.name}:`, error);
+                  // Continue with other tags even if one fails
+                }
+              } else if (existingTagMap.get(tag.name) !== tag.commit.sha) {
+                console.log(`Updating tag ${tag.name} to match upstream (force sync)`);
+                try {
+                  // Delete existing tag first
+                  await github.rest.git.deleteRef({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ref: `tags/${tag.name}`
+                  });
+
+                  // Create new tag at the correct commit
+                  await github.rest.git.createRef({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    ref: `refs/tags/${tag.name}`,
+                    sha: tag.commit.sha
+                  });
+                  console.log(`Successfully force updated tag: ${tag.name} to commit ${tag.commit.sha}`);
+                } catch (error) {
+                  console.error(`Error updating tag ${tag.name}:`, error);
                   // Continue with other tags even if one fails
                 }
               }
