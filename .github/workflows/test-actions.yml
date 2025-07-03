@@ -12,7 +12,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  packages: admin
+  packages: write
 
 jobs:
   test-hello-world:
